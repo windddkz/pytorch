@@ -1,7 +1,7 @@
 # ==============================================================================
-#                      远程触发 PyTorch 同步与构建 Workflow (修正版)
+#                      远程触发 PyTorch 同步与构建 Workflow
 # ==============================================================================
-name: Remote Trigger - Sync and Build PyTorch
+name: A Lite Build PyTorch
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 120
 
     env:
-      USE_CUDA: 0
+      USE_CUDA: 1
       USE_CUDNN: 0
       USE_ROCM: 0
       USE_DISTRIBUTED: 0
@@ -93,10 +93,10 @@ jobs:
           pip install ninja pyyaml typing_extensions
 
       # --- 步骤 2.5: 设置 ccache 编译缓存 ---
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ runner.os }}-pytorch-cpu
+      #- name: Setup ccache
+      #  uses: hendrikmuhs/ccache-action@v1.2
+      #  with:
+      #    key: ${{ runner.os }}-pytorch-cpu
 
       # --- 步骤 2.6: 执行 PyTorch 编译 ---
       - name: Build PyTorch (Lite)
