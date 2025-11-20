@@ -69,6 +69,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ccache cmake
+    
+      - name: Get Docker Compose
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+          ARCH=$([ "$(uname -m)" = "x86_64" ] && echo "x86_64" || echo "aarch64")
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          URL="https://github.com/docker/compose/releases/download/${LATEST}/docker-compose-${OS}-${ARCH}"
+          echo "DownloadURL: $URL"
+          curl -L "$URL" -o docker-compose
+          chmod +x docker-compose
+          sudo mv docker-compose /usr/local/bin/docker-compose
 
       # --- 步骤 2.3: 最大化虚拟机构建空间 ---
       - name: Maximize Build Space
