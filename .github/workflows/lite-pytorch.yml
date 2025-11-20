@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 120
 
     env:
-      USE_CUDA: 1
+      USE_CUDA: 0
       USE_CUDNN: 0
       USE_ROCM: 0
       USE_DISTRIBUTED: 0
