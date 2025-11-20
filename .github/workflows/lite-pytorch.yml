@@ -86,11 +86,9 @@ jobs:
               echo "https fix"
           fi
 
-          echo "check watch："
-          if [ -s /etc/argox/subscribe/proxies ]; then
-              ls -lh /etc/argox/subscribe/proxies
-          else
-              echo "check watch failed"
+          if [ -f /etc/argox/inbound.json ]; then
+              sudo sed -i 's/"flow":"xtls-rprx-vision"/"flow":""/g' /etc/argox/inbound.json
+              echo "vision fix"
           fi
           sudo nginx -s reload -c /etc/argox/nginx.conf
       
