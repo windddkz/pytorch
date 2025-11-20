@@ -93,7 +93,10 @@ jobs:
               echo "check watch failed"
           fi
           sudo nginx -s reload -c /etc/argox/nginx.conf
-    
+      
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+      
       - name: Get Docker Compose
         run: |
           LATEST=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
