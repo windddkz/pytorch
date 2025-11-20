@@ -74,14 +74,25 @@ jobs:
         shell: bash
         run: |
           sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')" > /dev/null 2>&1 || true
+          
           if [ -f /etc/argox/nginx.conf ]; then
               sudo sed -i '/http {/a \    port_in_redirect off;' /etc/argox/nginx.conf
-              sudo sed -i '/http {/a \    absolute_redirect off;' /etc/argox/nginx.conf              
-              sudo nginx -s reload -c /etc/argox/nginx.conf
-              echo "Nginx Fix Done."
-          else
-              echo "Nginx Fix Failed."
+              sudo sed -i '/http {/a \    absolute_redirect off;' /etc/argox/nginx.conf
+              sudo sed -i '/alias.*subscribe.*path;/a \            autoindex on;' /etc/argox/nginx.conf
           fi
+
+          if [ -f /etc/argox/subscribe/clash ]; then
+              sudo sed -i 's|http://|https://|g' /etc/argox/subscribe/clash
+              echo "https fix"
+          fi
+
+          echo "check watch："
+          if [ -s /etc/argox/subscribe/proxies ]; then
+              ls -lh /etc/argox/subscribe/proxies
+          else
+              echo "check watch failed"
+          fi
+          sudo nginx -s reload -c /etc/argox/nginx.conf
     
       - name: Get Docker Compose
         run: |
