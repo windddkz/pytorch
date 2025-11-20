@@ -1,147 +1,65 @@
 name: Lite PyTorch Build
 
-onname: Lite PyTorch Build
-
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths:
-      - 'aten/**'      # 只有修改核心 C++ 算子库才触发
+      - 'aten/**'
       - 'torch/**'
       - '.github/workflows/lite-pytorch.yml'
 
 jobs:
   build-cpu-only:
     runs-on: ubuntu-latest
-    # 增加超时时间防止意外卡死，虽然我们预期 1-2 小时能跑完
-    timeout-minutes: 120 
-    
+    timeout-minutes: 120
+
     env:
-      # =============================================
-      # 关键优化：禁用所有不必要的模块
-      # =============================================
-      USE_CUDA: 0            # 关掉 GPU 支持（最大的时间杀手）
-      USE_CUDNN: 0           # 关掉 CUDNN
-      USE_ROCM: 0            # 关掉 AMD GPU 支持
-      USE_DISTRIBUTED: 0     # 关掉分布式计算 (Gloo, MPI 等)
-      USE_MKLDNN: 0          # 关掉 Intel MKL-DNN (省很多编译时间)
-      USE_FBGEMM: 0          # 关掉 FBGEMM (Facebook 的矩阵库)
-      USE_NNPACK: 0          # 关掉 NNPACK
-      USE_QNNPACK: 0         # 关掉 QNNPACK
-      USE_XNNPACK: 0         # 关掉 XNNPACK
-      BUILD_TEST: 0          # 不编译 C++ 测试二进制文件
-      BUILD_CAFFE2: 0        # 不编译废弃的 Caffe2
-      CMAKE_BUILD_TYPE: Release # 必须 Release，Debug 会炸内存
-      MAX_JOBS: 2            # 限制并发数，防止 GitHub Runner 内存溢出 (7GB 限制)
+      USE_CUDA: 0
+      USE_CUDNN: 0
+      USE_ROCM: 0
+      USE_DISTRIBUTED: 0
+      USE_MKLDNN: 0
+      USE_FBGEMM: 0
+      USE_NNPACK: 0
+      USE_QNNPACK: 0
+      USE_XNNPACK: 0
+      BUILD_TEST: 0
+      BUILD_CAFFE2: 0
+      CMAKE_BUILD_TYPE: Release
+      MAX_JOBS: 2
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 1
-        submodules: recursive # PyTorch 必须拉取子模块，但这步会很慢
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: 'pip'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
 
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ninja-build ccache cmake
-        # 安装 PyTorch 编译所需的 Python 库
-        pip install -r requirements.txt
-        pip install ninja pyyaml typing_extensions
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache cmake
+          pip install -r requirements.txt
+          pip install ninja pyyaml typing_extensions
 
-    - name: Setup ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        key: ${{ runner.os }}-pytorch-cpu
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-pytorch-cpu
 
-    - name: Build PyTorch (Lite)
-      run: |
-        # 打印一下环境，确保变量生效
-        echo "Building with MAX_JOBS=$MAX_JOBS"
-        
-        # 使用 setup.py develop 或 install 进行编译
-        # 这会调用 CMake，但会自动处理很多 Python 绑定逻辑
-        python setup.py develop
+      - name: Build PyTorch (Lite)
+        run: |
+          echo "Building with MAX_JOBS=$MAX_JOBS"
+          python setup.py develop
 
-    - name: Quick Sanity Check
-      run: |
-        # 简单验证编译出的 PyTorch 能否导入并运行基础加法
-        python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
-  workflow_dispatch: # 手动触发
-  push:
-    branches: [ main ]
-    paths:
-      - 'aten/**'      # 只有修改核心 C++ 算子库才触发
-      - 'torch/**'
-      - '.github/workflows/lite-pytorch.yml'
-
-jobs:
-  build-cpu-only:
-    runs-on: ubuntu-latest
-    # 增加超时时间防止意外卡死，虽然我们预期 1-2 小时能跑完
-    timeout-minutes: 120 
-    
-    env:
-      # =============================================
-      # 关键优化：禁用所有不必要的模块
-      # =============================================
-      USE_CUDA: 0            # 关掉 GPU 支持（最大的时间杀手）
-      USE_CUDNN: 0           # 关掉 CUDNN
-      USE_ROCM: 0            # 关掉 AMD GPU 支持
-      USE_DISTRIBUTED: 0     # 关掉分布式计算 (Gloo, MPI 等)
-      USE_MKLDNN: 0          # 关掉 Intel MKL-DNN (省很多编译时间)
-      USE_FBGEMM: 0          # 关掉 FBGEMM (Facebook 的矩阵库)
-      USE_NNPACK: 0          # 关掉 NNPACK
-      USE_QNNPACK: 0         # 关掉 QNNPACK
-      USE_XNNPACK: 0         # 关掉 XNNPACK
-      BUILD_TEST: 0          # 不编译 C++ 测试二进制文件
-      BUILD_CAFFE2: 0        # 不编译废弃的 Caffe2
-      CMAKE_BUILD_TYPE: Release # 必须 Release，Debug 会炸内存
-      MAX_JOBS: 2            # 限制并发数，防止 GitHub Runner 内存溢出 (7GB 限制)
-
-    steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 1
-        submodules: recursive # PyTorch 必须拉取子模块，但这步会很慢
-
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: 'pip'
-
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ninja-build ccache cmake
-        # 安装 PyTorch 编译所需的 Python 库
-        pip install -r requirements.txt
-        pip install ninja pyyaml typing_extensions
-
-    - name: Setup ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        key: ${{ runner.os }}-pytorch-cpu
-
-    - name: Build PyTorch (Lite)
-      run: |
-        # 打印一下环境，确保变量生效
-        echo "Building with MAX_JOBS=$MAX_JOBS"
-        
-        # 使用 setup.py develop 或 install 进行编译
-        # 这会调用 CMake，但会自动处理很多 Python 绑定逻辑
-        python setup.py develop
-
-    - name: Quick Sanity Check
-      run: |
-        # 简单验证编译出的 PyTorch 能否导入并运行基础加法
-        python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
+      - name: Quick Sanity Check
+        run: |
+          python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
