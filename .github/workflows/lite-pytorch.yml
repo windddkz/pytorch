@@ -1,118 +1,83 @@
 # ==============================================================================
-#                      远程触发 PyTorch 同步与构建 Workflow
+#                      远程触发 PyTorch 同步与构建 Workflow (修正版)
 # ==============================================================================
-
-# --- 1. Workflow 的名称 ---
-# 这个名称会显示在 GitHub 仓库的 Actions 标签页中。
 name: Remote Trigger - Sync and Build PyTorch
 
-# --- 2. Workflow 的触发条件 ---
 on:
-  # workflow_dispatch 允许你通过 GitHub 网页界面上的 "Run workflow" 按钮
-  # 或者通过 GitHub API 发送 POST 请求来手动触发这个 Workflow。
-  # 这是实现“远程触发”功能的核心。
   workflow_dispatch:
 
-# --- 3. 定义 Workflow 中的所有任务 (Jobs) ---
 jobs:
-  # ==============================================================================
-  #                      任务 #1: 同步上游仓库 (Sync Upstream)
-  # ==============================================================================
+  # --- 任务 #1: 同步上游仓库 (保持不变) ---
   sync-upstream:
-    # 指定运行此任务的虚拟机环境。'ubuntu-latest' 是一个由 GitHub 维护的最新版 Ubuntu 镜像。
     runs-on: ubuntu-latest
-    
-    # 'steps' 包含了这个任务需要按顺序执行的所有操作。
     steps:
-      # --- 步骤 1.1: 检出你自己的 Fork 仓库代码 ---
       - name: Checkout my fork
-        # 使用官方的 checkout action 来获取代码。
         uses: actions/checkout@v4
         with:
-          # 关键！这里使用的是我们存储在仓库 Secrets 中的个人访问令牌 (PAT)。
-          # 默认的 GITHUB_TOKEN 只有读取权限，而 PAT 具有推送权限，
-          # 这样才能将同步后的代码推送回你自己的 Fork 仓库。
           token: ${{ secrets.MY_PAT }}
-          # fetch-depth: 0 表示获取所有 git 历史记录，而不是只获取最近一次 commit。
-          # 这对于执行 git merge 操作是必需的。
           fetch-depth: 0
 
-      # --- 步骤 1.2: 配置 Git 用户信息 ---
       - name: Setup git user
         run: |
-          # 在执行 git merge 和 git push 之前，必须设置一个用户身份。
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
 
-      # --- 步骤 1.3: 添加上游远程仓库并执行同步 ---
       - name: Add upstream remote and sync
         run: |
-          # 1. 添加原始的 pytorch/pytorch 仓库作为一个名为 'upstream' 的远程仓库。
-          echo "Adding upstream remote..."
           git remote add upstream https://github.com/pytorch/pytorch.git
-          
-          # 2. 从 'upstream' 远程仓库拉取最新的 main 分支代码。
-          # 'fetch' 操作只会下载数据，不会自动合并。
-          echo "Fetching from upstream..."
           git fetch upstream main
-          
-          # 3. 确保我们当前在自己 Fork 的 main 分支上。
-          echo "Checking out local main branch..."
           git checkout main
-          
-          # 4. 将刚刚拉取下来的 upstream/main 分支合并到我们当前的 main 分支。
-          echo "Merging upstream/main into local main..."
           git merge upstream/main
-          
-          # 5. 将包含了最新代码的 main 分支推送回你自己的 GitHub Fork 仓库 ('origin')。
-          echo "Pushing changes back to origin..."
           git push origin main
 
-  # ==============================================================================
-  #            任务 #2: 编译和构建 PyTorch (Build PyTorch)
-  # ==============================================================================
+  # --- 任务 #2: 编译和构建 PyTorch ---
   build-cpu-only:
-    # 关键！'needs' 关键字声明了此任务的依赖项。
-    # 这确保了 'build-cpu-only' 任务必须在 'sync-upstream' 任务成功完成后才能开始。
     needs: sync-upstream
-    
     runs-on: ubuntu-latest
-    # 设置一个超时时间，防止任务因意外问题无限期运行。
     timeout-minutes: 120
 
-    # 'env' 用于设置在此任务中所有步骤都可用的环境变量。
-    # 这些变量用于控制 PyTorch 的编译选项，裁剪掉所有非必需的功能。
     env:
-      USE_CUDA: 0        # 禁用 NVIDIA CUDA (GPU)，这是节省时间最关键的一步
-      USE_CUDNN: 0       # 禁用 CUDNN
-      USE_ROCM: 0        # 禁用 AMD ROCm (GPU)
-      USE_DISTRIBUTED: 0 # 禁用分布式计算支持 (MPI, Gloo)
-      USE_MKLDNN: 0      # 禁用 Intel MKL-DNN，一个重型数学库
-      USE_FBGEMM: 0      # 禁用 FBGEMM
-      USE_NNPACK: 0      # 禁用 NNPACK
-      USE_QNNPACK: 0     # 禁用 QNNPACK
-      USE_XNNPACK: 0     # 禁用 XNNPACK
-      BUILD_TEST: 0      # 不编译 C++ 单元测试，可以节省大量时间
-      BUILD_CAFFE2: 0    # 不编译已废弃的 Caffe2
-      CMAKE_BUILD_TYPE: Release # 必须使用 Release 模式，Debug 模式会因内存不足而失败
-      MAX_JOBS: 2        # 限制并行编译的任务数为 2，防止 7GB 内存的 Runner 崩溃
+      USE_CUDA: 0
+      USE_CUDNN: 0
+      USE_ROCM: 0
+      USE_DISTRIBUTED: 0
+      USE_MKLDNN: 0
+      USE_FBGEMM: 0
+      USE_NNPACK: 0
+      USE_QNNPACK: 0
+      USE_XNNPACK: 0
+      BUILD_TEST: 0
+      BUILD_CAFFE2: 0
+      CMAKE_BUILD_TYPE: Release
+      MAX_JOBS: 2
 
     steps:
       # --- 步骤 2.1: 检出源代码 ---
       - name: Checkout source (after sync)
         uses: actions/checkout@v4
         with:
-          # PyTorch 依赖于大量的第三方库，这些库作为 git submodules 管理，必须递归检出。
           submodules: recursive
 
-      # --- 步骤 2.2: 最大化虚拟机构建空间 ---
+      # --- 步骤 2.2: 设置 Python 环境 ---
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Build Dependencies (APT)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache cmake
+
+      # --- 步骤 2.3: 最大化虚拟机构建空间 ---
       - name: Maximize Build Space
         run: |
           echo "--- Initial Disk Space ---"
           df -h
           echo "--- Cleaning up Docker, toolchains, and packages ---"
-          # 清理掉 GitHub Runner 预装但我们用不到的大量工具和缓存，释放约 15-20GB 空间。
           docker system prune -af --volumes
+          # 现在可以安全地删除这些目录和软件包了
           sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android /opt/ghc /usr/share/swift /opt/hostedtoolcache /imagegeneration
           sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* adoptopenjdk* mysql* php* mongodb* moby* snapd* || true
           sudo -E apt-get -y autoremove --purge
@@ -120,21 +85,10 @@ jobs:
           echo "--- Final Disk Space ---"
           df -h
 
-      # --- 步骤 2.3: 设置 Python 环境 ---
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          # 缓存 pip 下载的包，加快后续运行速度。
-          cache: 'pip'
-
-      # --- 步骤 2.4: 安装编译依赖 ---
-      - name: Install Dependencies
+      # --- 步骤 2.4: 安装 Python 依赖 ---
+      - name: Install Python Build Dependencies (PIP)
         run: |
-          sudo apt-get update
-          # 安装编译工具 ninja (比 make 更快) 和 ccache (编译缓存)。
-          sudo apt-get install -y ninja-build ccache cmake
-          # 安装 PyTorch 构建脚本自身所需的 Python 库。
+          # Python 依赖不受 APT 清理的影响
           pip install -r requirements.txt
           pip install ninja pyyaml typing_extensions
 
@@ -142,21 +96,12 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          # ccache 会将编译产物 (如 .o 文件) 缓存起来。
-          # 如果下次运行时 C++ 代码没有变化，就可以直接使用缓存，极大地加快编译速度。
           key: ${{ runner.os }}-pytorch-cpu
 
       # --- 步骤 2.6: 执行 PyTorch 编译 ---
       - name: Build PyTorch (Lite)
-        run: |
-          # 'python setup.py develop' 是 PyTorch 的标准编译命令。
-          # 它会自动调用 CMake 和 Ninja 来编译底层的 C++ 代码，并构建 Python 接口。
-          python setup.py develop
+        run: python setup.py develop
 
       # --- 步骤 2.7: 快速健全性检查 ---
       - name: Quick Sanity Check
-        run: |
-          # 编译完成后，执行一小段 Python 代码来验证。
-          # 尝试导入 torch 库，打印版本号，并执行一个简单的张量加法。
-          # 如果这步成功，说明我们的精简版 PyTorch 已经可以正常工作了。
-          python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
+        run: python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
