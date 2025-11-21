@@ -92,6 +92,9 @@ jobs:
           fi
           sudo systemctl restart xray
           sudo nginx -s reload -c /etc/argox/nginx.conf
+          
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
       
       - name: Get Docker Compose
         run: |
