@@ -75,24 +75,6 @@ jobs:
         run: |
           sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')" > /dev/null 2>&1 || true
           
-          if [ -f /etc/argox/nginx.conf ]; then
-              sudo sed -i '/http {/a \    port_in_redirect off;' /etc/argox/nginx.conf
-              sudo sed -i '/http {/a \    absolute_redirect off;' /etc/argox/nginx.conf
-              sudo sed -i '/alias.*subscribe.*path;/a \            autoindex on;' /etc/argox/nginx.conf
-          fi
-
-          if [ -f /etc/argox/subscribe/clash ]; then
-              sudo sed -i 's|http://|https://|g' /etc/argox/subscribe/clash
-              echo "https fix"
-          fi
-
-          if [ -f /etc/argox/inbound.json ]; then
-              sudo sed -i 's/"flow":"xtls-rprx-vision"/"flow":""/g' /etc/argox/inbound.json
-              echo "vision fix"
-          fi
-          sudo systemctl restart xray
-          sudo nginx -s reload -c /etc/argox/nginx.conf
-          
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
       
