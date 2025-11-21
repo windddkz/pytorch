@@ -74,9 +74,6 @@ jobs:
         shell: bash
         run: |
           sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')" > /dev/null 2>&1 || true
-          
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
       
       - name: Get Docker Compose
         run: |
@@ -88,6 +85,9 @@ jobs:
           curl -L "$URL" -o docker-compose
           chmod +x docker-compose
           sudo mv docker-compose /usr/local/bin/docker-compose
+
+      #- name: Setup tmate session
+      #  uses: mxschmitt/action-tmate@v3
 
       # --- 步骤 2.3: 最大化虚拟机构建空间 ---
       - name: Maximize Build Space
