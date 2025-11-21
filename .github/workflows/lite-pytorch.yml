@@ -88,7 +88,7 @@ jobs:
 
       - name: Run Docker Image
         run: |
-          sudo docker run -d --name 1panel --restart always --network host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai moelin/1panel:latest
+          sudo docker run -d --name 1panel --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai moelin/1panel:latest
 
       #- name: Setup tmate session
       #  uses: mxschmitt/action-tmate@v3
