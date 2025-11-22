@@ -120,11 +120,27 @@ jobs:
       #  uses: hendrikmuhs/ccache-action@v1.2
       #  with:
       #    key: ${{ runner.os }}-pytorch-cpu
+      
+      # --- 步骤 2.6: 执行 PyTorch 编译并生成 Wheel 包 ---
+      - name: Build PyTorch (Wheel)
+        run: |
+          # 使用 bdist_wheel 生成 .whl 安装文件，而不是 setup.py develop
+          python setup.py bdist_wheel
+          
+          # 为了后续的 "Sanity Check" 步骤，我们需要安装刚刚生成的包
+          # 找到 dist 目录下的 whl 文件并安装
+          pip install dist/*.whl
 
-      # --- 步骤 2.6: 执行 PyTorch 编译 ---
-      - name: Build PyTorch (Lite)
-        run: python setup.py develop
-
-      # --- 步骤 2.7: 快速健全性检查 ---
+      # --- 步骤 2.7: 快速健全性检查 (保持不变) ---
       - name: Quick Sanity Check
         run: python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
+
+      # --- 步骤 2.8: 上传构建产物 ---
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-build-wheel
+          # PyTorch 的编译产物默认在 dist/ 目录下
+          path: dist/*.whl
+          #以此设定期限 (可选)
+          retention-days: 5
