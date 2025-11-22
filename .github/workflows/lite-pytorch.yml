@@ -5,7 +5,14 @@ name: A Lite Build PyTorch
 
 on:
   workflow_dispatch:
-
+  
+concurrency:
+  # 创建一个并发组，基于 workflow 名称和当前分支
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # 设置为 false: 如果有任务在运行，新任务会“排队等待”而不是“取消正在运行的任务”
+  # 设置为 true:  如果有任务在运行，直接杀掉旧任务，跑新任务
+  cancel-in-progress: false 
+  
 jobs:
   # --- 任务 #1: 同步上游仓库 (保持不变) ---
   sync-upstream:
