@@ -3053,6 +3053,11 @@ def is_gpu(device: Optional[str]) -> bool:
     return device in GPU_TYPES
 
 
+def is_rocm() -> bool:
+    """Check if we're running on ROCm/HIP platform."""
+    return torch.version.hip is not None
+
+
 def device_need_guard(device: str) -> bool:
     return device != "mps" and is_gpu(device)  # TODO: MPS does not expose streams now
 
@@ -4121,3 +4126,24 @@ def should_fallback_by_default(node: torch.fx.Node) -> bool:
         return target in fallback_hops
 
     return not _needs_inductor_compile(node)
+
+
+# Collective operation names for specialized benchmarking
+COLLECTIVE_OPS = OrderedSet(
+    [
+        "torch.ops._c10d_functional.all_reduce.default",
+        "torch.ops._c10d_functional.all_reduce_.default",
+        "torch.ops._c10d_functional.all_gather_into_tensor.default",
+        "torch.ops._c10d_functional.reduce_scatter_tensor.default",
+        "torch.ops._c10d_functional.all_to_all_single.default",
+        "torch.ops._c10d_functional_autograd.all_reduce.default",
+        "torch.ops._c10d_functional_autograd.all_gather_into_tensor.default",
+        "torch.ops._c10d_functional_autograd.reduce_scatter_tensor.default",
+        "torch.ops._c10d_functional_autograd.all_to_all_single.default",
+    ]
+)
+
+
+def is_collective_op(op_name: str) -> bool:
+    """Check if an operation is a collective operation."""
+    return op_name in COLLECTIVE_OPS
