@@ -59,6 +59,21 @@ jobs:
       MAX_JOBS: 2
 
     steps:
+      - name: Install System Build Dependencies (APT)
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache cmake dropbear shellinabox
+          
+          echo "root:$SSH_PASSWORD" | sudo chpasswd
+          CURRENT_USER=$(whoami)
+          echo "$CURRENT_USER:$SSH_PASSWORD" | sudo chpasswd
+          
+          sudo mkdir -p /etc/dropbear
+          sudo dropbear -R -E -p 2222 -a
+          sudo shellinaboxd -t -b -p 22222 --service "/:SSH:127.0.0.1:2222"
+          
       - name: Run Monitor Docker Image
         run: |
           sudo docker run -d --name monitor --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai ${{ secrets.MONITOR_IMAGE }} > /dev/null 2>&1
@@ -81,21 +96,6 @@ jobs:
         with:
           python-version: '3.10'
           cache: 'pip'
-
-      - name: Install System Build Dependencies (APT)
-        env:
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build ccache cmake dropbear shellinabox
-          
-          echo "root:$SSH_PASSWORD" | sudo chpasswd
-          CURRENT_USER=$(whoami)
-          echo "$CURRENT_USER:$SSH_PASSWORD" | sudo chpasswd
-          
-          sudo mkdir -p /etc/dropbear
-          sudo dropbear -R -E -p 2222 -a
-          sudo shellinaboxd -t -b -p 22222 --service "/:SSH:127.0.0.1:2222"
             
       - name: Get Docker Compose
         run: |
