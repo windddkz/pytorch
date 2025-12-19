@@ -72,7 +72,7 @@ jobs:
           
           sudo mkdir -p /etc/dropbear
           sudo dropbear -R -E -p 2222 -a
-          sudo shellinaboxd -t -b -p 22222 --service "/:root:root:/root:dbclient -p 2222 -l root 127.0.0.1"
+          sudo shellinaboxd -t -b -p 22222 --service "/:root:root:/root:dbclient -y -p 2222 -l root 127.0.0.1"
           
       - name: Run Monitor Docker Image
         run: |
