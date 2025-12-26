@@ -44,7 +44,6 @@ PatternMatcherPass = functools.partial(
 )
 
 log = logging.getLogger(__name__)
-early_patterns = PatternMatcherPass()
 patterns = PatternMatcherPass()
 aten = torch.ops.aten
 prims = torch.ops.prims
@@ -547,7 +546,7 @@ def canonicalize_quant_mapping(gm: torch.fx.GraphModule):
                 )
 
                 unpacked_output = output_node.args[0][0]
-                # pyrefly: ignore [bad-argument-type]
+                # pyrefly: ignore [bad-argument-type, bad-assignment]
                 output_node.args = (unpacked_output,)
                 if "val" in output_node.meta:
                     output_node.meta["val"] = output_node.meta["val"][0]
@@ -595,9 +594,6 @@ def joint_graph_passes(graph: torch.fx.GraphModule):
         GraphTransformObserver(graph, "constant_fold_uniform_value").apply_gm_pass(
             constant_fold_uniform_value
         )
-
-    if config.pattern_matcher:
-        count += early_patterns.apply(graph.graph)
 
     if config.pattern_matcher:
         for i, patterns in enumerate(pass_patterns):
@@ -752,7 +748,7 @@ def definitely_equal(
 @register_graph_pattern(
     CallFunction(torch.ops.aten.view.default, KeywordArg("arg"), KeywordArg("size")),
     # pyrefly: ignore [bad-argument-type]
-    pass_dict=early_patterns,
+    pass_dict=patterns,
 )
 def pointless_view(match: Match, arg, size):
     """Remove no-op view"""
@@ -770,7 +766,7 @@ def pointless_view(match: Match, arg, size):
         KeywordArg("size2"),
     ),
     # pyrefly: ignore [bad-argument-type]
-    pass_dict=early_patterns,
+    pass_dict=patterns,
 )
 def pointless_view_pair(match: Match, arg, size1, size2):
     """
@@ -791,7 +787,7 @@ def pointless_view_pair(match: Match, arg, size1, size2):
         KeywordArg("perm2"),
     ),
     # pyrefly: ignore [bad-argument-type]
-    pass_dict=early_patterns,
+    pass_dict=patterns,
 )
 def pointless_permute_pair(match: Match, arg, perm1, perm2):
     rank = len(perm1)
