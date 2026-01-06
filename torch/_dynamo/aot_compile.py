@@ -6,7 +6,7 @@ import logging
 import pickle
 import types
 from collections.abc import Callable, Sequence
-from contextlib import AbstractContextManager, ExitStack, nullcontext
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from typing import Any, Optional, TYPE_CHECKING
 
@@ -107,7 +107,6 @@ class AOTCompiledFunction:
 
         self._artifacts.check_compatibility()
 
-        # pyrefly: ignore [read-only]
         self.fn = self._artifacts.runtime_env.forward_callable(
             self._artifacts.backend_id,
             self._artifacts.compiled_fn,
@@ -186,7 +185,6 @@ def aot_compile_fullgraph(
     example_inputs: tuple[tuple[Any, ...], dict[str, Any]],
     hooks: Hooks,
     backend: Callable[[torch.fx.GraphModule, list[torch.Tensor]], SerializableCallable],
-    dynamic: bool | None = None,
 ) -> AOTCompiledFunction:
     from torch._dynamo.guards import CheckFunctionManager
     from torch._dynamo.package import SourceInfo
@@ -195,17 +193,10 @@ def aot_compile_fullgraph(
 
     args, kwargs = example_inputs
 
-    dynamic_ctx = nullcontext()
-    if dynamic is not None:
-        from torch._dynamo.eval_frame import set_enable_dynamic
-
-        dynamic_ctx = set_enable_dynamic(dynamic)
-
     with (
         get_metrics_context(),
         dynamo_timed("fullgraph_capture"),
         torch._functorch.config.patch(strict_autograd_cache=True),
-        dynamic_ctx,
     ):
         capture_output = convert_frame.fullgraph_capture(model, args, kwargs)
         graph_capture_output = capture_output.graph_capture_output

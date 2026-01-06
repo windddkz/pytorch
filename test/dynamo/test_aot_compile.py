@@ -387,21 +387,6 @@ class TestAOTCompile(torch._inductor.test_case.TestCase):
             actual = compiled_fn(mod, *inputs)
             self.assertEqual(expected, actual)
 
-    def test_code_cache(self):
-        from torch._dynamo.package import SerializedCode
-
-        def foo():
-            pass
-
-        serialized_code = SerializedCode.from_code_object(foo.__code__)
-        object.__setattr__(
-            serialized_code, "co_consts", serialized_code.co_consts + ({1: 2},)
-        )
-
-        new_code = SerializedCode.to_code_object(serialized_code)
-        new_serialized_code = SerializedCode.from_code_object(new_code)
-        self.assertEqual(new_serialized_code, serialized_code)
-
     def test_decorated_function_aot(self):
         def check_inputs(fn):
             def _fn(*args, **kwargs):
@@ -700,23 +685,6 @@ from user code:
             torch.randn(3, 3),
         )
         self.assertEqual(compiled_mod(inputs), mod(inputs))
-
-    def test_dynamic_settings(self):
-        def fn(x, y):
-            return x + y
-
-        def backend(gm, example_inputs):
-            self.assertFalse(torch._dynamo.config.automatic_dynamic_shapes)
-            return CustomCompiledFunction(gm, example_inputs)
-
-        self.assertTrue(torch._dynamo.config.automatic_dynamic_shapes)
-        compiled_fn = torch.compile(
-            fn, fullgraph=True, backend=backend, dynamic=False
-        ).aot_compile(((torch.randn(3, 4), torch.randn(3, 4)), {}))
-        inputs = (torch.randn(3, 4), torch.randn(3, 4))
-        expected = fn(*inputs)
-        actual = compiled_fn(*inputs)
-        self.assertEqual(expected, actual)
 
     def test_fullgraph_capture_with_pytree_func(self):
         from torch._dynamo.functional_export import dynamo_graph_capture_for_export
