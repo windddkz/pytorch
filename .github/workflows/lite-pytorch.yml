@@ -41,7 +41,7 @@ jobs:
   build-cpu-only:
     needs: sync-upstream
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
 
     env:
       USE_CUDA: 0
