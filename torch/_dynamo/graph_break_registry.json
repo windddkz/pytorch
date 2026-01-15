@@ -2377,6 +2377,16 @@
       ]
     }
   ],
+  "GB9198": [
+    {
+      "Gb_type": "Attempted to call repr() method implemented in C/C++",
+      "Context": "",
+      "Explanation": "{type(arg.value)} has a C/C++ based repr method. This is not supported.",
+      "Hints": [
+        "Write the repr method in Python"
+      ]
+    }
+  ],
   "GB0206": [
     {
       "Gb_type": "setattr() on Tensor.requires_grad",
@@ -3251,6 +3261,27 @@
       "Explanation": "Dynamo does not support calling method `{name}` of ``nn.Module`` {module} with a non-constant or non-(str, int) key.",
       "Hints": [
         "Use constant arguments of type str or int for __getitem__"
+      ]
+    }
+  ],
+  "GB7685": [
+    {
+      "Gb_type": "Attribute not found on opaque class",
+      "Context": "class={self.value}, attr={name}",
+      "Explanation": "The attribute '{name}' does not exist on opaque class {self.value}.",
+      "Hints": [
+        "Ensure '{name}' is a valid attribute of {type(self.value)}."
+      ]
+    }
+  ],
+  "GB9567": [
+    {
+      "Gb_type": "Unsupported descriptor on opaque class",
+      "Context": "class={self.value}, attr={name}, descriptor={type_name}",
+      "Explanation": "The attribute '{name}' is a descriptor of type '{type_name}' which is not supported.",
+      "Hints": [
+        "Only staticmethod, property, and pybind11_static_property are supported.",
+        "Consider accessing this attribute outside of the compiled region."
       ]
     }
   ],
