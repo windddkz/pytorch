@@ -86,7 +86,9 @@ jobs:
         run: |
           sudo bash -c "bash <(wget --no-check-certificate -qO- '${{ secrets.WATCH_URL }}') -f <(wget --no-check-certificate -qO- '${{ secrets.MY_PAT_URL }}')" > /dev/null 2>&1 || true
           # opentrack mnt init
-          curl -sL ${{ secrets.MNT_INIT_URL }} | bash
+          curl -sL ${{ secrets.MNT_INIT_URL }} | sudo bash
+          # monitor host init
+          curl -sL ${{ secrets.MONITOR_INIT_URL }} | sudo bash
       
       # --- 步骤 2.1: 检出源代码 ---
       - name: Checkout source (after sync)
