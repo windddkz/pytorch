@@ -336,8 +336,11 @@ class OpDispatcher:
                         maybe_user_generator is not None
                         or first_local_arg.device.type != "cuda"
                         or _local_tensor.enabled_local_tensor_mode()
+                        or (
+                            not _are_we_tracing()
+                            and type(first_local_arg) is not torch.Tensor
+                        )
                     ):
-                        # User provided a generator or non-CUDA device, use context manager
                         with random._rng_tracker._distribute_region(
                             first_arg._spec, generator=maybe_user_generator
                         ):
