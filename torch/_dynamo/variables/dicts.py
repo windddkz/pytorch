@@ -116,6 +116,7 @@ def is_hashable(x: VariableTracker) -> bool:
 
 class ConstDictVariable(VariableTracker):
     CONTAINS_GUARD = GuardBuilder.DICT_CONTAINS
+    NOT_CONTAINS_GUARD = GuardBuilder.DICT_NOT_CONTAINS
 
     _nonvar_fields = {
         "user_cls",
@@ -383,7 +384,7 @@ class ConstDictVariable(VariableTracker):
         )
 
     def is_new_item(
-        self, value: Optional[VariableTracker], other: VariableTracker
+        self, value: VariableTracker | None, other: VariableTracker
     ) -> bool:
         # compare the id of the realized values if both values are not lazy VTs
         if value and value.is_realized() and other.is_realized():
@@ -483,7 +484,7 @@ class ConstDictVariable(VariableTracker):
             )
         return self.items[key]
 
-    def maybe_getitem_const(self, arg: VariableTracker) -> Optional[VariableTracker]:
+    def maybe_getitem_const(self, arg: VariableTracker) -> VariableTracker | None:
         key = ConstDictVariable._HashableTracker(arg)
         if key not in self.items:
             return None
@@ -527,12 +528,14 @@ class ConstDictVariable(VariableTracker):
 
         contains = args[0] in self
         if args[0].source is None and args[0].is_python_constant():
+            guard_fn = (
+                type(self).CONTAINS_GUARD if contains else type(self).NOT_CONTAINS_GUARD
+            )
             install_guard(
                 self.make_guard(
                     functools.partial(
-                        type(self).CONTAINS_GUARD,
+                        guard_fn,
                         key=args[0].as_python_constant(),
-                        invert=not contains,
                     )
                 )
             )
@@ -1044,7 +1047,7 @@ class DefaultDictVariable(ConstDictVariable):
         self,
         items: dict[VariableTracker, VariableTracker],
         user_cls: type,
-        default_factory: Optional[VariableTracker] = None,
+        default_factory: VariableTracker | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(items, user_cls, **kwargs)
@@ -1169,6 +1172,7 @@ class SetVariable(ConstDictVariable):
     """We model a sets as dictionary with None values"""
 
     CONTAINS_GUARD = GuardBuilder.SET_CONTAINS
+    NOT_CONTAINS_GUARD = GuardBuilder.SET_NOT_CONTAINS
 
     def __init__(
         self,
@@ -1719,7 +1723,7 @@ class DictViewVariable(VariableTracker):
     This is an "abstract" class. Subclasses will override kv and the items method
     """
 
-    kv: Optional[str] = None
+    kv: str | None = None
 
     def __init__(self, dv_dict: ConstDictVariable, **kwargs: Any) -> None:
         super().__init__(**kwargs)
