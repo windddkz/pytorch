@@ -2979,6 +2979,22 @@ class CommonTemplate:
 
         self.common(fn, (torch.randint(4, (4,)),))
 
+    def test_comparison_scalar_type_promotion_bf16(self):
+        if self.device == "mps":
+            raise unittest.SkipTest(
+                "MPS codegen doesn't upcast bf16 constants to float32"
+            )
+
+        def fn(x):
+            return x == 3.14
+
+        x = torch.tensor(
+            [3.14, 1.0, 3.140625, 0.0], dtype=torch.bfloat16, device=self.device
+        )
+        expected = fn(x)
+        actual = torch.compile(fn)(x)
+        self.assertEqual(actual, expected)
+
     @skip_if_gpu_halide
     @xfail_if_triton_cpu
     def test_dist(self):
@@ -12541,6 +12557,59 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                         inplace=False,
                         deterministic=deterministic,
                     )
+
+    @unittest.skipIf(IS_MACOS, "fails on macos")
+    @parametrize("dtype", test_dtypes)
+    def test_empty_deterministic(self, dtype):
+        def test_helper(fn, args):
+            cfunc = torch.compile(fn, fullgraph=True)
+
+            with DeterministicGuard(True, fill_uninitialized_memory=True):
+                eager = fn(*args)
+                compiled = cfunc(*args)
+                torch.testing.assert_close(eager, compiled, equal_nan=True)
+
+        def fn():
+            return torch.empty(4, 4, device=self.device, dtype=dtype)
+
+        test_helper(fn, ())
+
+        def fn(x):
+            return torch.empty_like(x, device=self.device, dtype=dtype)
+
+        test_helper(fn, (torch.empty(4, 4, device=self.device),))
+
+        def fn():
+            return torch.empty_strided((2, 2), (2, 1), device=self.device, dtype=dtype)
+
+        test_helper(fn, ())
+
+        def fn():
+            return torch.empty_permuted(
+                (2, 3, 5), (1, 0, 2), device=self.device, dtype=dtype
+            )
+
+        test_helper(fn, ())
+
+    @requires_gpu()
+    @unittest.skipIf(IS_MACOS, "fails on macos")
+    def test_empty_deterministic_pin_memory(self):
+        if self.device != "cpu":
+            raise unittest.SkipTest("Test only runs on CPU")
+
+        def fn():
+            return torch.empty(
+                4, 4, device=self.device, dtype=torch.float32, pin_memory=True
+            )
+
+        cfunc = torch.compile(fn, fullgraph=True)
+
+        with DeterministicGuard(True, fill_uninitialized_memory=True):
+            eager = fn()
+            compiled = cfunc()
+            torch.testing.assert_close(eager, compiled, equal_nan=True)
+            self.assertTrue(eager.is_pinned())
+            self.assertTrue(compiled.is_pinned())
 
     def test_inplace_resize_as(self):
         def fn(x, y):
