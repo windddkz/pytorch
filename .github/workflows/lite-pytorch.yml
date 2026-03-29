@@ -49,7 +49,7 @@ jobs:
     # 动态架构选择：如果是 arm64 选择官方的 arm 标签，否则走常规 x64
     runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 360 # 最长6小时
-
+    
     env:
       USE_CUDA: 0
       USE_CUDNN: 0
@@ -59,14 +59,19 @@ jobs:
       USE_MKLDNN: ${{ inputs.arch == 'x64' && '1' || '0' }}
       USE_FBGEMM: ${{ inputs.arch == 'x64' && '1' || '0' }}
       
+      BUILD_CUSTOM_PROTOBUF: ${{ inputs.arch == 'arm64' && '1' || '0' }}
+      BUILD_LITE_INTERPRETER: ${{ inputs.arch == 'arm64' && '1' || '0' }}
+      USE_KINETO: ${{ inputs.arch == 'arm64' && '1' || '0' }}
+
       USE_NNPACK: 1
       USE_QNNPACK: 1
       USE_XNNPACK: 1
       BUILD_TEST: 0
       BUILD_CAFFE2: 0
-      CMAKE_BUILD_TYPE: Release
-      MAX_JOBS: 1
 
+      CMAKE_BUILD_TYPE: ${{ inputs.arch == 'arm64' && 'RelWithDebInfo' || 'Release' }}
+
+      MAX_JOBS: 1
       BUILD_IGNORE_SVE_UNAVAILABLE: 1
 
     steps:
