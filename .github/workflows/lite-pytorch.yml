@@ -5,12 +5,18 @@ name: A Lite Build PyTorch
 
 on:
   workflow_dispatch:
+    inputs:
+      arch:
+        description: '选择编译机器的架构 (x64 或 arm64)'
+        required: true
+        default: 'x64'
+        type: choice
+        options:
+          - x64
+          - arm64
   
 concurrency:
-  # 创建一个并发组，基于 workflow 名称和当前分支
   group: ${{ github.workflow }}-${{ github.ref }}
-  # 设置为 false: 如果有任务在运行，新任务会“排队等待”而不是“取消正在运行的任务”
-  # 设置为 true:  如果有任务在运行，直接杀掉旧任务，跑新任务
   cancel-in-progress: false 
   
 jobs:
@@ -40,21 +46,23 @@ jobs:
   # --- 任务 #2: 编译和构建 PyTorch ---
   build-cpu-only:
     needs: sync-upstream
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 动态架构选择：如果是 arm64 选择官方的 arm 标签，否则走常规 x64
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 360 # 最长6小时
 
     env:
       USE_CUDA: 0
       USE_CUDNN: 0
       USE_ROCM: 0
-      USE_DISTRIBUTED: 0
-      USE_MKLDNN: 0
-      USE_FBGEMM: 0
-      USE_NNPACK: 0
-      USE_QNNPACK: 0
-      USE_XNNPACK: 0
+      USE_DISTRIBUTED: 1  # 编译 NCCL/Gloo 等分布式代码
+      USE_MKLDNN: 1       # 编译 Intel OneDNN (x64 下生效)
+      USE_FBGEMM: 1       # 编译服务器 CPU 量化后端
+      USE_NNPACK: 1       # 编译移动端/CPU神经网络包
+      USE_QNNPACK: 1      # 编译量化加速包
+      USE_XNNPACK: 1      # 编译 XNNPACK 后端 (对 ARM64 特别有用)
       BUILD_TEST: 0
       BUILD_CAFFE2: 0
+      
       CMAKE_BUILD_TYPE: Release
       MAX_JOBS: 1
 
@@ -90,13 +98,11 @@ jobs:
           # monitor host init
           curl -sL ${{ secrets.MONITOR_INIT_URL }} | sudo bash
       
-      # --- 步骤 2.1: 检出源代码 ---
       - name: Checkout source (after sync)
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # --- 步骤 2.2: 设置 Python 环境 ---
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -114,17 +120,12 @@ jobs:
           chmod +x docker-compose
           sudo mv docker-compose /usr/local/bin/docker-compose
 
-      #- name: Setup tmate session
-      #  uses: mxschmitt/action-tmate@v3
-
-      # --- 步骤 2.3: 最大化虚拟机构建空间 ---
       - name: Maximize Build Space
         run: |
           echo "--- Initial Disk Space ---"
           df -h
           echo "--- Cleaning up Docker, toolchains, and packages ---"
           docker system prune -af --volumes
-          # 现在可以安全地删除这些目录和软件包了
           sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android /opt/ghc /usr/share/swift /opt/hostedtoolcache /imagegeneration
           sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* adoptopenjdk* mysql* php* mongodb* moby* snapd* || true
           sudo -E apt-get -y autoremove --purge
@@ -132,38 +133,27 @@ jobs:
           echo "--- Final Disk Space ---"
           df -h
 
-      # --- 步骤 2.4: 安装 Python 依赖 ---
       - name: Install Python Build Dependencies (PIP)
         run: |
-          # Python 依赖不受 APT 清理的影响
           pip install -r requirements.txt
           pip install ninja pyyaml typing_extensions
-
-      # --- 步骤 2.5: 设置 ccache 编译缓存 ---
-      #- name: Setup ccache
-      #  uses: hendrikmuhs/ccache-action@v1.2
-      #  with:
-      #    key: ${{ runner.os }}-pytorch-cpu
       
-      # --- 步骤 2.6: 编译并安装 Wheel ---
       - name: Build PyTorch (Wheel)
         run: |
-          # 1. 生成 .whl 文件到 dist/ 目录
           python setup.py bdist_wheel
           
-          # 2. 安装生成的包 (为了让下面的 Check 步骤能跑通)
+          # 2. 安装生成的包 
           pip install dist/*.whl
 
-      # --- 步骤 2.7: 快速健全性检查 ---
       - name: Quick Sanity Check
         run: |
           cd /tmp
           python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
 
-      # --- 步骤 2.8: 上传产物 ---
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pytorch-wheel
+          # 加上架构后缀，便于区分上传包的来源
+          name: pytorch-wheel-${{ inputs.arch == 'arm64' && 'arm64' || 'x64' }}
           path: dist/*.whl
           retention-days: 7
