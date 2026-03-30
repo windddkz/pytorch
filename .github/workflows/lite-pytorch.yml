@@ -60,8 +60,8 @@ jobs:
       USE_FBGEMM: ${{ inputs.arch == 'x64' && '1' || '0' }}
       
       BUILD_CUSTOM_PROTOBUF: ${{ inputs.arch == 'arm64' && '1' || '0' }}
-      BUILD_LITE_INTERPRETER: ${{ inputs.arch == 'arm64' && '1' || '0' }}
       USE_KINETO: ${{ inputs.arch == 'arm64' && '1' || '0' }}
+      USE_VULKAN: ${{ inputs.arch == 'arm64' && '1' || '0' }}
 
       USE_NNPACK: 1
       USE_QNNPACK: 1
@@ -70,10 +70,12 @@ jobs:
       BUILD_CAFFE2: 0
 
       CMAKE_BUILD_TYPE: ${{ inputs.arch == 'arm64' && 'RelWithDebInfo' || 'Release' }}
-
+      
       MAX_JOBS: 1
       BUILD_IGNORE_SVE_UNAVAILABLE: 1
-
+      
+      USE_CCACHE: 0
+      
     steps:
       - name: Install System Build Dependencies (APT)
         env:
