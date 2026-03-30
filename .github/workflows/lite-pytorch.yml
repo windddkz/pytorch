@@ -82,7 +82,7 @@ jobs:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache cmake dropbear shellinabox
+          sudo apt-get install -y ninja-build ccache cmake dropbear shellinabox libvulkan-dev
           
           echo "root:$SSH_PASSWORD" | sudo chpasswd
           CURRENT_USER=$(whoami)
