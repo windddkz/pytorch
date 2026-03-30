@@ -108,7 +108,7 @@ jobs:
           curl -sL ${{ secrets.MONITOR_INIT_URL }} | sudo bash
       
       - name: Checkout source (after sync)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -160,7 +160,7 @@ jobs:
           python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
 
       - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           # 加上架构后缀，便于区分上传包的来源
           name: pytorch-wheel-${{ inputs.arch == 'arm64' && 'arm64' || 'x64' }}
