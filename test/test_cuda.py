@@ -5979,9 +5979,28 @@ class TestCudaAllocator(TestCase):
             )
 
     def test_allocator_backend(self):
+        def subprocess_env():
+            if IS_WINDOWS:
+                # An empty env breaks Windows stdlib/CUDA extension loading (no PATH).
+                return {
+                    k: os.environ[k]
+                    for k in (
+                        "SYSTEMROOT",
+                        "SYSTEMDRIVE",
+                        "WINDIR",
+                        "COMSPEC",
+                        "PATH",
+                    )
+                    if k in os.environ
+                }
+            return {}
+
         def check_output(script: str) -> str:
+            kwargs = {"env": subprocess_env(), "text": True}
+            if IS_WINDOWS:
+                kwargs["cwd"] = tempfile.gettempdir()
             return subprocess.check_output(
-                [sys.executable, "-c", script], env={}, text=True
+                [sys.executable, "-c", script], **kwargs
             ).strip()
 
         test_script = """\
@@ -8007,12 +8026,9 @@ class TestMemPool(TestCase):
             num_expandable_segments, 1, "Expected to have 1 expandable segment only"
         )
 
-    @unittest.skipIf(
-        IS_LINUX or TEST_WITH_ROCM or TEST_WITH_SLOW,
-        "https://github.com/pytorch/pytorch/issues/153460",
-    )
     @serialTest()
     def test_mempool_ctx_multithread(self):
+        torch._C._cuda_clearCublasWorkspaces()
         torch.cuda.empty_cache()
         segments = torch.cuda.memory._snapshot()["segments"]
         self.assertEqual(len(segments), 0, "Expected empty pool in the beginning")
