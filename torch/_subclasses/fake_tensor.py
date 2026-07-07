@@ -1344,12 +1344,15 @@ def extract_tensor_metadata(t: Tensor) -> TensorMetadata:
     """
     Extract the TensorMetadata of a tensor.
     """
+    # Read layout/sparseness once (hot-path Python properties on FakeTensor).
+    layout = t.layout
+    _is_sparse_any: bool = is_sparse_any(t)
     memory_format = suggest_memory_format(t)
     # Don't call is_contiguous() on a Tensor which has symbolic sizes or things
     # will go badly (guards will be messed up?)
     if (
         t._has_symbolic_sizes_strides
-        or is_sparse_any(t)
+        or _is_sparse_any
         or not t.is_contiguous(memory_format=memory_format)
     ):
         memory_format = None  # type: ignore[assignment]
@@ -1359,13 +1362,13 @@ def extract_tensor_metadata(t: Tensor) -> TensorMetadata:
     return TensorMetadata(
         t.dtype,
         t.shape,
-        t.stride() if t.layout == torch.strided else (),
+        t.stride() if layout == torch.strided else (),
         t.device,
-        t.layout,
+        layout,
         memory_format,
         storage_offset,
         # Only set storage_bytes for tensors that have storage (not sparse)
-        t.untyped_storage().nbytes() if not is_sparse_any(t) else None,
+        t.untyped_storage().nbytes() if not _is_sparse_any else None,
         t.requires_grad,
         t.is_quantized,
         t.is_conj(),
@@ -1373,8 +1376,8 @@ def extract_tensor_metadata(t: Tensor) -> TensorMetadata:
         t.is_inference(),
         t.is_sparse,
         t.is_coalesced() if t.is_sparse else None,
-        t.dense_dim() if is_sparse_any(t) else None,
-        t.sparse_dim() if is_sparse_any(t) else None,
+        t.dense_dim() if _is_sparse_any else None,
+        t.sparse_dim() if _is_sparse_any else None,
     )
 
 
@@ -1629,16 +1632,19 @@ class FakeTensorMode(TorchDispatchMode):
     #   (see NOTE: [torch.tensor, lift_fresh, and device movement])
     @property
     def avoid_device_init(self) -> bool:
+        def has_eagerly_available_backend() -> bool:
+            return (hasattr(torch, "hpu") and torch.hpu.is_available()) or bool(
+                _is_privateuse1_backend_available()
+            )
+
         if torch.xpu._is_compiled():
             if torch.cuda._is_compiled():
                 raise AssertionError("Cannot have both xpu and cuda compiled")
-            return not torch.xpu.is_available()
+            return not (torch.xpu.is_initialized() or has_eagerly_available_backend())
+        if torch.cuda._is_compiled():
+            return not (torch.cuda.is_initialized() or has_eagerly_available_backend())
 
-        return not (
-            torch.cuda.is_available()
-            or (hasattr(torch, "hpu") and torch.hpu.is_available())
-            or _is_privateuse1_backend_available()
-        )
+        return not (torch.cuda.is_available() or has_eagerly_available_backend())
 
     @property
     def stack(self) -> str:
@@ -1941,6 +1947,9 @@ class FakeTensorMode(TorchDispatchMode):
 
         if func is aten._unsafe_view.default:
             raise _BypassDispatchCache("unsafe view")
+
+        if func is torch.ops.prims.as_strided.default:
+            raise _BypassDispatchCache("prims.as_strided")
 
         if func in self.lift_fns:
             raise _BypassDispatchCache("lift")

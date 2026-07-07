@@ -16,6 +16,7 @@ import types
 import unittest
 import warnings
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, cast
 from typing_extensions import override
 from unittest import mock
@@ -99,6 +100,7 @@ from torch.testing._internal.triton_utils import (
     requires_cuda_and_triton,
     requires_gpu_and_triton,
 )
+from torch.testing._internal.two_tensor import TwoTensor
 
 
 try:
@@ -200,6 +202,7 @@ class TestCacheKeyStrategy(TestCase):
                     fake_strategy,
                 ),
                 mock.patch("torch._inductor.runtime.triton_compat.HAS_TRITON", False),
+                mock.patch.object(torch.cuda, "is_initialized", return_value=True),
                 mock.patch.object(torch.cuda, "current_device", return_value=0),
                 mock.patch.object(
                     torch.cuda,
@@ -220,6 +223,118 @@ class TestCacheKeyStrategy(TestCase):
             },
         )
         self.assertTrue(fake_strategy.sort_keys)
+
+    def test_cache_base_get_system_uninitialized_does_not_poison_cache(self):
+        class FakeStrategy:
+            values = []
+
+            def key_from_json(self, value, *, sort_keys=True):
+                self.values.append(copy.deepcopy(value))
+                return f"sentinel-{len(self.values)}"
+
+        fake_strategy = FakeStrategy()
+        device_properties = types.SimpleNamespace(
+            name="test-gpu", gcnArchName="test-gcn"
+        )
+
+        CacheBase.get_system.cache_clear()
+        try:
+            with (
+                mock.patch(
+                    "torch._inductor.codecache.SYSTEM_CACHE_KEY_STRATEGY",
+                    fake_strategy,
+                ),
+                mock.patch("torch._inductor.runtime.triton_compat.HAS_TRITON", False),
+                mock.patch.object(
+                    torch.cuda,
+                    "is_initialized",
+                    side_effect=[False, True],
+                ),
+                mock.patch.object(torch.cuda, "current_device", return_value=0),
+                mock.patch.object(
+                    torch.cuda,
+                    "get_device_properties",
+                    return_value=device_properties,
+                ),
+                mock.patch.object(torch.version, "cuda", "test-cuda"),
+            ):
+                self.assertEqual(CacheBase.get_system()["hash"], "sentinel-1")
+                self.assertEqual(CacheBase.get_system()["hash"], "sentinel-2")
+        finally:
+            CacheBase.get_system.cache_clear()
+
+        self.assertEqual(
+            fake_strategy.values,
+            [
+                {},
+                {
+                    "device": {"name": "test-gpu"},
+                    "version": {"triton": None, "cuda": "test-cuda"},
+                },
+            ],
+        )
+
+    def test_cache_base_get_local_cache_path_uninitialized_does_not_poison_cache(self):
+        class FakeStrategy:
+            values = []
+
+            def key_from_json(self, value, *, sort_keys=True):
+                self.values.append(copy.deepcopy(value))
+                return f"sentinel-{len(self.values)}"
+
+        fake_strategy = FakeStrategy()
+        device_properties = types.SimpleNamespace(
+            name="test-gpu", gcnArchName="test-gcn"
+        )
+        cache_root = os.path.join(tempfile.gettempdir(), "test-inductor-cache")
+
+        CacheBase.get_system.cache_clear()
+        CacheBase._get_local_cache_path_cached.cache_clear()
+        try:
+            with (
+                mock.patch(
+                    "torch._inductor.codecache.SYSTEM_CACHE_KEY_STRATEGY",
+                    fake_strategy,
+                ),
+                mock.patch(
+                    "torch._inductor.codecache.cache_dir", return_value=cache_root
+                ),
+                mock.patch("torch._inductor.runtime.triton_compat.HAS_TRITON", False),
+                mock.patch.object(
+                    torch.cuda,
+                    "is_initialized",
+                    side_effect=[False, True, True],
+                ),
+                mock.patch.object(torch.cuda, "current_device", return_value=0),
+                mock.patch.object(
+                    torch.cuda,
+                    "get_device_properties",
+                    return_value=device_properties,
+                ),
+                mock.patch.object(torch.version, "cuda", "test-cuda"),
+            ):
+                self.assertEqual(
+                    CacheBase.get_local_cache_path(),
+                    Path(os.path.join(cache_root, "cache", "sentinel-1")),
+                )
+                self.assertEqual(
+                    CacheBase.get_local_cache_path(),
+                    Path(os.path.join(cache_root, "cache", "sentinel-2")),
+                )
+        finally:
+            CacheBase.get_system.cache_clear()
+            CacheBase._get_local_cache_path_cached.cache_clear()
+
+        self.assertEqual(
+            fake_strategy.values,
+            [
+                {},
+                {
+                    "device": {"name": "test-gpu"},
+                    "version": {"triton": None, "cuda": "test-cuda"},
+                },
+            ],
+        )
 
     def test_autotune_prepare_key_uses_strategy(self):
         from torch._inductor.runtime.autotune_cache import AutotuneCache
@@ -332,7 +447,7 @@ class _CyclicOpaque(torch._custom_class_base.CustomClassBase):
         self.child = None
 
 
-if not torch._library.opaque_object.is_opaque_type(_CyclicOpaque):
+if not torch._library.opaque_object.is_custom_class(_CyclicOpaque):
     torch._library.opaque_object.register_custom_class(_CyclicOpaque, typ="symbolic")
 
 
@@ -3092,6 +3207,41 @@ if not torch.allclose(eager_result, compiled_result, atol=0.1, rtol=0.01):
         self.assertIsNot(seen_fake_modes[0], fake_mode)
         self.assertIsInstance(seen_fake_modes[0], FakeTensorMode)
         self.assertIsNotNone(seen_fake_modes[0].shape_env)
+
+    def test_dynamic_shapes_from_graph_tensor_subclass_fake_mode(self):
+        @torch._dynamo.allow_in_graph
+        def to_subclass(x):
+            return TwoTensor(x.clone(), x.clone())
+
+        def f(x):
+            return to_subclass(x).view(-1)
+
+        x = torch.ones(2)
+        torch._dynamo.mark_dynamic(x, 0)
+        with fresh_cache():
+            gm, args, kwargs = self.capture(f, dynamic=True)(x)
+            if kwargs:
+                raise AssertionError
+
+        output_node = next(iter(reversed(gm.graph.nodes)))
+        value_node = output_node.args[0][0]
+        self.assertIsInstance(value_node, torch.fx.Node)
+        output_example_value = value_node.meta["example_value"]
+        self.assertIsInstance(output_example_value, TwoTensor)
+        fake_mode = output_example_value.a.fake_mode
+
+        seen_fake_modes = []
+
+        def fake_compile_fx(gm, example_inputs, **kwargs):
+            seen_fake_modes.append(torch._guards.TracingContext.get().fake_mode)
+            return lambda *args: args
+
+        with mock.patch(
+            "torch._inductor.compile_fx.compile_fx", side_effect=fake_compile_fx
+        ):
+            torch._inductor.standalone_compile(gm, args, dynamic_shapes="from_graph")
+
+        self.assertIs(seen_fake_modes[0], fake_mode)
 
     def test_standalone_compile_fake_mode_requires_shape_env(self):
         def f(x):
