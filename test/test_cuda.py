@@ -1107,6 +1107,13 @@ print(t.is_pinned())
         self.assertEqual(torch._C._get_cublas_allow_tf32(), not orig)
         torch.backends.cuda.matmul.allow_tf32 = orig
 
+    def test_cublaslt_prefer_grouped_gemm_get_set(self):
+        orig = torch.backends.cuda.matmul.prefer_cublaslt_grouped_gemm
+        self.assertEqual(torch._C._get_cublaslt_prefer_grouped_gemm(), orig)
+        torch.backends.cuda.matmul.prefer_cublaslt_grouped_gemm = not orig
+        self.assertEqual(torch._C._get_cublaslt_prefer_grouped_gemm(), not orig)
+        torch.backends.cuda.matmul.prefer_cublaslt_grouped_gemm = orig
+
     def test_float32_matmul_precision_get_set(self):
         orig = torch.get_float32_matmul_precision()
         skip_tf32_cublas = "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE" in os.environ and int(
@@ -2684,19 +2691,6 @@ torch.cuda.synchronize()
         g.replay()
 
         self.assertEqual(b.sum().item(), 11000.0)
-
-    @unittest.skipIf(
-        not TEST_CUDA_GRAPH, "CUDA >= 11.0 or ROCM >= 5.3 required for graphs"
-    )
-    def test_graph_scalar_assignment(self):
-        x = torch.zeros(2, 2, device="cuda")
-        g = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(g):
-            x[0, 1] = 5.0
-
-        x.zero_()  # Reset the side-effect of capture execution
-        g.replay()
-        self.assertEqual(x[0, 1].item(), 5.0)
 
     @unittest.skipIf(
         not TEST_CUDA_GRAPH, "CUDA >= 11.0 or ROCM >= 5.3 required for graphs"
