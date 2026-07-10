@@ -415,6 +415,13 @@ mixed_mm_choice: Literal["default", "triton", "aten", "heuristic"] = "heuristic"
 # enable reordering pass for increasing overlap between compute and communication
 reorder_for_compute_comm_overlap = False
 
+# Decompose DTensor Shard(dim) -> Shard(other_dim) all-to-all into explicit
+# layout ops plus _c10d_functional.all_to_all_single/wait_tensor. This is
+# experimental and intentionally opt-in.
+decompose_shard_dim_alltoall = (
+    os.environ.get("TORCHINDUCTOR_DECOMPOSE_SHARD_DIM_ALLTOALL", "0") == "1"
+)
+
 # passes (in execution order) for increasing overlap between compute and communication
 # for built-in passes, use string name; for user-defined passes, pass in the function handle
 # WARNING: Inductor scheduler IR is at prototype stage and subject to change,
@@ -1173,7 +1180,7 @@ _fuse_ddp_communication = False
 _fuse_ddp_bucket_size = 25
 
 # Flag to control which fusion passes to apply. Functions in the list will
-# be applied in order. There are two different different fusion passes
+# be applied in order. There are two different fusion passes
 # --"fuse_ddp_with_concat_op" and "fuse_ddp_with_coalesced_op". The default
 # one is "fuse_ddp_with_concat_op". Users can also change this to a customized
 # fusion function.
