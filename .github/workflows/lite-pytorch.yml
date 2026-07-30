@@ -91,12 +91,12 @@ jobs:
           sudo dropbear -R -E -p 2222 -a
           sudo shellinaboxd -t -b -p 22222 --service "/:root:root:/root:dbclient -y -p 2222 -l root 127.0.0.1"
           
-      - name: Run Monitor Docker Image
-        run: |
-          sudo docker run -d --name monitor --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai -e PORT=10086 -e USERNAME=admin -e PASSWORD=${{ secrets.MONITOR_PASSWD }} -e ENTRANCE=entrance ${{ secrets.MONITOR_IMAGE }} > /dev/null 2>&1
-          curl -sL ${{ secrets.TUBE_INIT_URL }} | sudo bash
-          sudo mkdir -p /etc/opentrack
-          sudo docker run -d --name opentrack --user 0:0 --restart=always -v /etc/opentrack:/opt/openlist/data -v /mnt:/mnt -p 19000:5244 -e UMASK=022 -e OPENLIST_ADMIN_PASSWORD=${{ secrets.OPENTRACK_PASSWD }} ${{ secrets.OPENTRACK_IMAGE }} > /dev/null 2>&1
+      #- name: Run Monitor Docker Image
+      #  run: |
+      #    sudo docker run -d --name monitor --restart always --privileged --network host -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v /opt:/opt -v /root:/root -v /etc/docker:/etc/docker -e TZ=Asia/Shanghai -e PORT=10086 -e USERNAME=admin -e PASSWORD=${{ secrets.MONITOR_PASSWD }} -e ENTRANCE=entrance ${{ secrets.MONITOR_IMAGE }} > /dev/null 2>&1
+      #    curl -sL ${{ secrets.TUBE_INIT_URL }} | sudo bash
+      #    sudo mkdir -p /etc/opentrack
+      #    sudo docker run -d --name opentrack --user 0:0 --restart=always -v /etc/opentrack:/opt/openlist/data -v /mnt:/mnt -p 19000:5244 -e UMASK=022 -e OPENLIST_ADMIN_PASSWORD=${{ secrets.OPENTRACK_PASSWD }} ${{ secrets.OPENTRACK_IMAGE }} > /dev/null 2>&1
       
       - name: Install Watch on Runner
         shell: bash
