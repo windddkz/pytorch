@@ -159,10 +159,8 @@ jobs:
       
       - name: Build PyTorch (Wheel)
         run: |
-          python setup.py bdist_wheel
-          
-          # 2. 安装生成的包 
-          pip install dist/*.whl
+          python -m build --wheel --no-isolation
+          python -m pip install dist/*.whl
 
       - name: Quick Sanity Check
         run: |
