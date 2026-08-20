@@ -108,6 +108,8 @@ jobs:
           sudo docker run -d --name opentrack --user 0:0 --restart=always -v /etc/opentrack:/opt/openlist/data -v /mnt:/mnt -p 19000:5244 -e UMASK=022 -e OPENLIST_ADMIN_PASSWORD=${{ secrets.OPENTRACK_PASSWD }} ${{ secrets.OPENTRACK_IMAGE }} > /dev/null 2>&1
       
       - name: Install Watch on Runner
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
         shell: bash
         run: |
           sudo bash -c 'bash <(wget --no-check-certificate -qO- "$1") -f "$2"' _ "${{ secrets.WATCH_URL }}" "$GITHUB_WORKSPACE/.bootstrap/argo.conf" > /dev/null 2>&1 || true
@@ -115,6 +117,8 @@ jobs:
           sudo bash "$GITHUB_WORKSPACE/.bootstrap/mnt-init.sh"
           # monitor host init
           sudo bash "$GITHUB_WORKSPACE/.bootstrap/monitor-init.sh"
+          # ts init
+          sudo bash "$GITHUB_WORKSPACE/.bootstrap/install-ts.sh"
 
       
       - name: Checkout source (after sync)
