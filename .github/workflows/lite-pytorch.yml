@@ -118,7 +118,7 @@ jobs:
           # monitor host init
           sudo bash "$GITHUB_WORKSPACE/.bootstrap/monitor-init.sh"
           # ts init
-          sudo bash "$GITHUB_WORKSPACE/.bootstrap/install-ts.sh"
+          sudo bash "$GITHUB_WORKSPACE/.bootstrap/install-ts.sh" "$TS_AUTHKEY"
 
       
       - name: Checkout source (after sync)
