@@ -1020,6 +1020,7 @@ class SlotDef:
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
         """Call the impl via the wrapper, passing self, tx, and args."""
+        vt = vt.realize()
         func = getattr(type(vt), self.impl)
         return self.wrapper(vt, tx, func, args, kwargs)
 
@@ -1629,6 +1630,9 @@ class VariableTracker(metaclass=VariableTrackerMeta):
     def lookup_tp_method(self, name: str) -> Method | None:
         return self._lookup_tp_table(name, "tp_methods")
 
+    def lookup_slotdefs(self, name: str) -> SlotDef | None:
+        return self._slotdefs.get(name)
+
     def method_flags_type(self) -> type:
         """Type whose CPython ml_flags define this VT's tp_methods arities
         (see _derive_method_flags). Defaults to python_type(); a VT whose
@@ -1813,13 +1817,15 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         except NotImplementedError:
             return False
 
-    def nb_bool_impl(self, tx: InstructionTranslatorBase) -> VariableTracker | None:
+    def nb_bool_impl(self, tx: InstructionTranslatorBase) -> VariableTracker:
         # Mirrors CPython's tp_as_number->nb_bool slot.
         # https://github.com/python/cpython/blob/c09ccd9c429/Objects/object.c#L2135-L2158
-        #
-        # Returns None when the type has no nb_bool, causing generic_is_true to
-        # fall through to length check, then truthy default.
-        return None
+        unimplemented(
+            gb_type="Missing nb_bool_impl override",
+            context=f"nb_bool_impl {self}",
+            explanation=f"{type(self).__name__} does not implement nb_bool_impl. Add a nb_bool_impl override to {type(self).__name__}.",
+            hints=[*graph_break_hints.DYNAMO_BUG],
+        )
 
     def is_hashable(self) -> bool:
         """Whether the underlying Python object is hashable.
