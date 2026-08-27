@@ -363,7 +363,6 @@ add_custom_command(
     --tags-path "aten/src/ATen/native/tags.yaml"
     $<$<BOOL:${INTERN_DISABLE_AUTOGRAD}>:--disable-autograd>
     $<$<BOOL:${SELECTED_OP_LIST}>:--selected-op-list-path="${SELECTED_OP_LIST}">
-    --force_schema_registration
     --gen_lazy_ts_backend
     ${GEN_PER_OPERATOR_FLAG}
   DEPENDS
@@ -1797,7 +1796,6 @@ torch_optimize_layout_if_enabled(torch_cpu)
 if(USE_CUDA)
   torch_optimize_layout_if_enabled(torch_cuda)
 endif()
-torch_optimize_layout_if_enabled(torch)
 
 if(PRINT_CMAKE_DEBUG_INFO)
   print_target_properties(torch)
