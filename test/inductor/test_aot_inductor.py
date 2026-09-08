@@ -203,7 +203,12 @@ try:
             SwitchModels,
             WhileLoopModels,
         )
-        from .test_torchinductor import copy_tests, requires_multigpu, TestFailure
+        from .test_torchinductor import (
+            copy_tests,
+            requires_multigpu,
+            skip_if_lite_mode,
+            TestFailure,
+        )
     except ImportError:
         from test_aot_inductor_utils import (  # @manual=fbcode//caffe2/test/inductor:aot_inductor_utils-library
             AOTIRunnerUtil,
@@ -221,6 +226,7 @@ try:
         from test_torchinductor import (  # @manual=fbcode//caffe2/test/inductor:test_inductor-library
             copy_tests,
             requires_multigpu,
+            skip_if_lite_mode,
             TestFailure,
         )
 except (unittest.SkipTest, ImportError):
@@ -395,6 +401,7 @@ class AOTInductorTestsTemplate:
             )
             FileCheck().check_count("// subgraph: ", 2).run(code)
 
+    @skip_if_lite_mode("the region patch would match the ambient config")
     def test_invoke_subgraph_nested_region_config(self):
         # Same, but the region carries a per-region Inductor config patch, so
         # the config.patch in CppWrapperCpu.codegen_subgraph is on the path too.
@@ -10714,6 +10721,52 @@ class TestCheckLowerboundConfig(TestCase):
             # Should NOT have lowerbound checks
             FileCheck().check_count(
                 "dim value is too small",
+                0,
+                exactly=True,
+            ).run(code)
+
+
+class TestCheckUpperboundConfig(TestCase):
+    def test_aoti_check_upperbound_codegen(self):
+        """
+        Test that check_upperbound config controls upperbound check codegen.
+        When check_upperbound=False, no upperbound checks should be generated.
+        """
+
+        class Model(torch.nn.Module):
+            def forward(self, x):
+                return x + 1
+
+        model = Model()
+        batch = Dim("batch", min=2, max=10)
+        example_inputs = (torch.randn(4, 3),)
+
+        # Test with check_upperbound=True (default)
+        with config.patch({"aot_inductor.check_upperbound": True}):
+            result, code = run_and_get_cpp_code(
+                AOTIRunnerUtil.legacy_compile,
+                model,
+                example_inputs,
+                dynamic_shapes={"x": {0: batch}},
+            )
+            # Should have upperbound checks
+            FileCheck().check_count(
+                "dim value is too large",
+                1,
+                exactly=True,
+            ).run(code)
+
+        # Test with check_upperbound=False
+        with config.patch({"aot_inductor.check_upperbound": False}):
+            result, code = run_and_get_cpp_code(
+                AOTIRunnerUtil.legacy_compile,
+                model,
+                example_inputs,
+                dynamic_shapes={"x": {0: batch}},
+            )
+            # Should NOT have upperbound checks
+            FileCheck().check_count(
+                "dim value is too large",
                 0,
                 exactly=True,
             ).run(code)
