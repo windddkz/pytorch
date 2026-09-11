@@ -32,6 +32,7 @@ import numpy as np
 
 import torch
 import torch._dynamo.config as dynamo_config
+import torch._functorch.config as functorch_config
 import torch._inductor.aoti_eager
 import torch.fx.traceback as fx_traceback
 import torch.nn as nn
@@ -8345,6 +8346,7 @@ for dtype in (torch.int32, torch.int64):
 
         self.assertEqual(o1, o2)
 
+    @functorch_config.patch(view_replay_for_aliased_outputs=True)
     def test_view_as_complex_non_contiguous(self):
         def fn(x):
             y = x.transpose(1, 2)
@@ -19459,7 +19461,7 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
         else:
             code = run_and_get_triton_code(compiled, x)
             self.assertEqual(code.count("@triton_heuristics."), 1)
-            self.assertEqual(code.count("triton_helpers.max_with_index"), 1)
+            self.assertEqual(code.count("triton_helpers.max_with_"), 1)
 
     @skip_if_halide
     @requires_gpu_and_triton
@@ -19511,7 +19513,7 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
         code = run_and_get_triton_code(torch.compile(fn, fullgraph=True), x)
         self.assertEqual(code.count("@triton_heuristics."), 1)
         # Equivalent value/index pairs merge; the distinct mapping does not.
-        self.assertEqual(code.count("triton_helpers.max_with_index"), 2)
+        self.assertEqual(code.count("triton_helpers.max_with_"), 2)
 
     @skip_if_halide
     @requires_gpu_and_triton
@@ -20313,6 +20315,7 @@ if RUN_GPU or HAS_MPS:
                         self.assertTrue(torch.isnan(actual[:3]).all())
 
         @requires_cuda_and_triton
+        @functorch_config.patch(view_replay_for_aliased_outputs=True)
         def test_complex_view_as_complex_exact_stride_copy_cuda(self):
             def fn(x):
                 y = x.transpose(1, 2)
