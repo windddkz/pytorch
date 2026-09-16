@@ -11,6 +11,7 @@ import re
 import sys
 import tempfile
 import types
+import weakref
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import dataclass
@@ -641,11 +642,16 @@ class AOTCompiledFunction:
         f_locals.update(bind_locals(self._artifacts.signature, *args, **kwargs))
         return f_locals
 
+    def _live_guard_manager(self) -> "GuardManagerWrapper":
+        # Narrowing for pyrefly, not a live check: __post_init__ always leaves a
+        # populated guard_manager (only serialize() nulls it, on a copy).
+        if self._artifacts.guard_manager is None:
+            raise AssertionError("live artifact must have a guard_manager")
+        return self._artifacts.guard_manager
+
     def guard_check(self, *args: Any, **kwargs: Any) -> bool:
         f_locals = self.prepare_f_locals(*args, **kwargs)
-        if self._artifacts.guard_manager is None:
-            raise AssertionError("guard_manager must not be None")
-        return self._artifacts.guard_manager.check(f_locals)
+        return self._live_guard_manager().check(f_locals)
 
     def __post_init__(self) -> None:
         from .package import load_guard_manager, load_guards_state
@@ -882,11 +888,9 @@ class AOTCompiledFunction:
         )
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        if self._artifacts.guard_manager is None:
-            raise AssertionError("guard_manager must not be None")
         if self._guard_check_enabled and not self.guard_check(*args, **kwargs):
             f_locals = self.prepare_f_locals(*args, **kwargs)
-            debug_info = self._artifacts.guard_manager.check_verbose(f_locals)
+            debug_info = self._live_guard_manager().check_verbose(f_locals)
             msg = f"GuardManager check failed, reason: {debug_info}"
             if any(
                 _names_a_missing_global(part) for part in debug_info.verbose_code_parts
@@ -1454,19 +1458,119 @@ def _warn_dropped_module_dispatch(model: torch.nn.Module) -> None:
         )
 
 
+# Parameters as (name, kind, default id), co_freevars, closure cell ids.
+_BindingKey = tuple[tuple[tuple[str, int, int], ...], tuple[str, ...], tuple[int, ...]]
+
+
+def _binding_key(artifacts: CompileArtifacts) -> _BindingKey:
+    # What prepare_f_locals reads, with defaults and cells by identity. Signature
+    # equality is unusable here: Parameter.__eq__ takes bool() of
+    # `default == default`, which raises for a tensor default.
+    env, params = artifacts.runtime_env, artifacts.signature.parameters.values()
+    return (
+        tuple([(p.name, p.kind, id(p.default)) for p in params]),
+        env.bytecode.co_freevars,
+        tuple([id(cell) for cell in env.closure or ()]),
+    )
+
+
 @dataclass
 class AOTCompiledModel:
-    # Represents a single forward function of a model along with dispatch
-    # compiled_results is serializable. We require the model to deserialize again.
+    """A module's forward compiled for several calls, with dispatch over them.
+
+    Private and experimental, like ``_aot_compile`` which builds one. Only
+    ``compiled_results`` serializes; ``deserialize`` needs the model again.
+    ``compiled_results`` must hold at least one result: ``aot_compile_module``
+    refuses an empty list, and neither the constructor nor ``deserialize``
+    checks, so an empty one is the caller's error.
+
+    ``compiled_results`` may be edited between calls. A call judges the list
+    it began with, and results that bind alike -- equal parameter names, kinds
+    and default objects, the same closure cells, as every result of one
+    ``_aot_compile`` has -- share one binding of the call; whether they do is
+    decided again whenever the list's contents change.
+
+    Dispatch walks ``compiled_results`` in order and serves the first result
+    whose guard check accepts the call. One exit of ``check()`` refuses without
+    evaluating the tree -- the no-tensor-aliasing exit of the recursive
+    dict-tag fast path in ``GuardManager::check_nopybind``, reached only with
+    ``use_recursive_dict_tags_for_guards`` on -- so if no check accepted, every
+    result is checked once more before dispatch gives up; a result whose guards
+    would pass can therefore be outranked by a later result whose first check
+    accepted. When neither pass accepts, the call is served by the first result
+    that opted out through ``disable_guard_check()``, from any index, and only
+    when none did is it handed to ``compiled_results[0]``, which raises
+    ``GuardManager check failed``. That is all the flag does here: ``check()``
+    never reads it, so an opted-out result is scanned and re-checked like any
+    other and is served in index order when its check accepts, and on the
+    strength of its opt-out alone only after both the scan and the re-check
+    found no match.
+    """
+
     model: torch.nn.Module
     compiled_results: list[AOTCompiledFunction]
+    # The results last judged, weakly so a dropped one is not kept alive, and
+    # whether one bind of a call serves them all; the default is the verdict
+    # over no results. One field so one store publishes both and a reader never
+    # sees one list's contents beside another's verdict. A hint, not a lock:
+    # the last writer wins, and a call that finds the contents changed decides
+    # again.
+    _binding_verdict: tuple[tuple[weakref.ref[AOTCompiledFunction], ...], bool] = (
+        dataclasses.field(default=((), False), init=False, compare=False, repr=False)
+    )
+
+    def _binds_alike(self, results: tuple[AOTCompiledFunction, ...]) -> bool:
+        prior, shared = self._binding_verdict
+        if len(results) == len(prior) and all(w() is r for w, r in zip(prior, results)):
+            return shared
+        key = _binding_key(results[0]._artifacts) if results else None
+        shared = key is not None and all(
+            _binding_key(result._artifacts) == key for result in results[1:]
+        )
+        self._binding_verdict = (tuple(weakref.ref(r) for r in results), shared)
+        return shared
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        for result in self.compiled_results:
-            if result.guard_check(self.model, *args, **kwargs):
-                return result(self.model, *args, **kwargs)
-        # All guards failed, just run one of them and throw the guard check error.
-        return self.compiled_results[0](self.model, *args, **kwargs)
+        # compiled_results is public, so read it once: every stage below judges
+        # the results this call began with, on the binding decided over them.
+        results = tuple(self.compiled_results)
+        # check() ignores _guard_check_enabled, so scan every result. The first
+        # is bound and checked as at a single-result model; only a call it
+        # refuses asks whether the rest bind alike and can reuse its binding, a
+        # bind costing more than a check(). The reuse rests on check() only
+        # reading the f_locals it is handed, so one dict can serve every tree.
+        first = results[0]
+        f_locals = first.prepare_f_locals(self.model, *args, **kwargs)
+        if first._live_guard_manager().check(f_locals):
+            # The guards just passed: call fn rather than result(), whose
+            # __call__ would bind and evaluate them again.
+            return first.fn(self.model, *args, **kwargs)
+        bound = [f_locals]
+        shared = len(results) > 1 and self._binds_alike(results)
+        for result in results[1:]:
+            if not shared:
+                f_locals = result.prepare_f_locals(self.model, *args, **kwargs)
+            bound.append(f_locals)
+            if result._live_guard_manager().check(f_locals):
+                return result.fn(self.model, *args, **kwargs)
+        # One exit of check() refuses without running the tree: a tag-safe root's
+        # no-tensor-aliasing fast check (GuardManager::check_nopybind). It
+        # disarms that root, so a second check() runs the tree it skipped. With
+        # use_recursive_dict_tags_for_guards off (the default) no root is tag
+        # safe and this pass re-runs trees that genuinely failed, lambda guards
+        # included, bumping the failing node's _fail_count a second time; about
+        # 1us per result, accepted.
+        for result, f_locals in zip(results, bound):
+            if result._live_guard_manager().check(f_locals):
+                return result.fn(self.model, *args, **kwargs)
+        # A result that opted out via disable_guard_check() accepts anything, but
+        # only after both passes above have failed to find a real match.
+        for result in results:
+            if not result._guard_check_enabled:
+                return result.fn(self.model, *args, **kwargs)
+        # Every result's guards failed and none opted out, so results[0] is
+        # enabled and raises the guard check error.
+        return results[0](self.model, *args, **kwargs)
 
     def serialize(self) -> bytes:
         # Nothing threads external_data down this path (_save_aot_compiled_module
