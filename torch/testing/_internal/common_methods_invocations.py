@@ -12055,13 +12055,16 @@ op_db: list[OpInfo] = [
            op=lambda inp, *args, **kwargs: wrapper_set_seed(torch.Tensor.item, inp, *args, **kwargs),
            ref=np.ndarray.item,
            method_variant=None,
-           dtypes=all_types_and_complex_and(torch.bfloat16, torch.float16, torch.chalf, torch.bool),
+           dtypes=all_types_and_complex_and(torch.bfloat16, torch.float16, torch.chalf, torch.bool, torch.float8_e4m3fn),
            dtypesIfHpu=custom_types(torch.float32),
            supports_out=False,
            supports_autograd=False,
            error_inputs_func=error_inputs_item,
            sample_inputs_func=sample_inputs_item,
            skips=(
+               DecorateInfo(unittest.skip("allclose does not support float8"),
+                            'TestSchemaCheckModeOpInfo', 'test_schema_correctness',
+                            dtypes=(torch.float8_e4m3fn,)),
                # Error testing item function variant
                DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit',
                             dtypes=(torch.float32, torch.complex64)),
@@ -15114,6 +15117,16 @@ op_db: list[OpInfo] = [
                 "test_nnc_correctness",
                 device_type="cpu",
             ),
+            # N-D linear weights give (N, C, *) logits, so nll_loss dispatches
+            # to nll_loss2d, whose kernel combines per-block fp16 partials with
+            # atomics; two runs of the same op can differ by up to 2.5e-3
+            # relative, so the redispatch comparison needs more than 1 ULP.
+            DecorateInfo(
+                toleranceOverride({torch.float16: tol(atol=1e-3, rtol=5e-3)}),
+                "TestTorchFunctionRedispatchOpsDevice",
+                "test_redispatch",
+                device_type="cuda",
+            ),
         ),
         skips=(
             # RuntimeError: Difference from float64 is larger with
@@ -15179,6 +15192,14 @@ op_db: list[OpInfo] = [
             DecorateInfo(
                 toleranceOverride({torch.bfloat16: tol(atol=4e-3, rtol=2e-2)}),
                 "TestConsistency", "test_output_match", device_type="mps",
+            ),
+            # Same fp16 atomic-order spread as the unchunked variant: N-D
+            # linear weights fall back to the reference nll_loss2d path.
+            DecorateInfo(
+                toleranceOverride({torch.float16: tol(atol=1e-3, rtol=5e-3)}),
+                "TestTorchFunctionRedispatchOpsDevice",
+                "test_redispatch",
+                device_type="cuda",
             ),
         ),
         skips=(
