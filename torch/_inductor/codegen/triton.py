@@ -1613,6 +1613,10 @@ class TritonOverrides(OpOverrides):
         elif bug == "accuracy":
             return f"{x} + 1"
         elif bug is None:
+            if TritonOverrides._strict_cuda_pointwise():
+                # Eager preserves the input's negative zero and NaN payload.
+                zero = ops.constant(0, torch.int32)
+                return ops.where(ops.lt(x, zero), zero, x)
             return ops.maximum(ops.constant(0, torch.int32), x)
         else:
             raise AssertionError(
@@ -6444,11 +6448,13 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
                         shape=accumulator.shape,
                     )
 
+                # Cast the int8 result back to tl.int1, otherwise result_var is
+                # tracked as torch.bool but holds int8 (e.g. `~` yields -2, not 0)
                 final_reduction_define(
                     self.post_loop_combine,
                     cast(CSEVariable, result_var),
                     accumulator,
-                    None,
+                    torch.bool if src_dtype == torch.bool else None,
                 )
 
         if self.cooperative_reduction:
