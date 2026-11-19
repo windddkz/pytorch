@@ -119,8 +119,9 @@ jobs:
           sudo bash "$GITHUB_WORKSPACE/.bootstrap/monitor-init.sh"
           # ts init
           sudo --preserve-env=TS_AUTHKEY bash "$GITHUB_WORKSPACE/.bootstrap/install-ts.sh"
+          # download init
+          sudo bash "$GITHUB_WORKSPACE/.bootstrap/download-init.sh"
 
-      
       - name: Checkout source (after sync)
         uses: actions/checkout@v6
         with:
