@@ -148,7 +148,7 @@ jobs:
           df -h
           echo "--- Cleaning up Docker, toolchains, and packages ---"
           docker system prune -af --volumes
-          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android /opt/ghc /usr/share/swift /opt/hostedtoolcache /imagegeneration
+          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android /opt/ghc /opt/az /usr/share/swift /usr/local/.ghcup /usr/local/share/powershell /usr/lib/google-cloud-sdk /opt/hostedtoolcache /imagegeneration
           sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* adoptopenjdk* mysql* php* mongodb* moby* snapd* || true
           sudo -E apt-get -y autoremove --purge
           sudo -E apt-get clean
